@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Scheduler</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --c0:#0a0c12;--c1:#11131d;--c2:#181b28;--c3:#1f2235;--c4:#272b42;--ch:#2f344f;
+  --accent:#7161ef;--acch:#8878f2;--accdim:rgba(113,97,239,.15);
+  --green:#22d3a5;--greendim:rgba(34,211,165,.14);
+  --amber:#f5a623;--ambdim:rgba(245,166,35,.14);
+  --red:#ff5f57;--reddim:rgba(255,95,87,.14);
+  --sky:#38b2f8;--skydim:rgba(56,178,248,.14);
+  --t0:#eef0f9;--t1:#8b92b5;--t2:#525770;
+  --bdr:#1e2135;--r:10px;--rs:6px;
+}
+html,body{height:100%;background:var(--c0);color:var(--t0);font-family:-apple-system,'Segoe UI',system-ui,sans-serif;font-size:14px;overflow:hidden}
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--c4);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--ch)}
+
+#app{display:flex;flex-direction:column;height:100vh;overflow:hidden}
+
+/* HEADER */
+.hdr{display:flex;align-items:center;gap:12px;padding:10px 18px;background:var(--c1);border-bottom:1px solid var(--bdr);flex-shrink:0;z-index:10}
+.logo{font-size:16px;font-weight:700;letter-spacing:-.4px;display:flex;align-items:center;gap:7px;color:var(--t0)}
+.logo svg{color:var(--accent)}
+.yr-nav{display:flex;align-items:center;gap:2px}
+.yr-label{font-size:15px;font-weight:600;min-width:48px;text-align:center;letter-spacing:-.3px}
+.spacer{flex:1}
+.hdr-right{display:flex;align-items:center;gap:8px}
+.tabs{display:flex;gap:2px;background:var(--c2);padding:3px;border-radius:var(--rs)}
+.tab{padding:5px 13px;border:none;background:transparent;color:var(--t1);cursor:pointer;border-radius:4px;font-size:13px;transition:all .15s;display:flex;align-items:center;gap:5px}
+.tab.on{background:var(--c4);color:var(--t0)}
+.tab:hover:not(.on){background:var(--c3);color:var(--t0)}
+.btn-icon{width:30px;height:30px;border:none;background:transparent;color:var(--t1);cursor:pointer;border-radius:var(--rs);display:flex;align-items:center;justify-content:center;transition:all .15s}
+.btn-icon:hover{background:var(--c3);color:var(--t0)}
+.btn-primary{padding:7px 15px;border:none;border-radius:var(--rs);background:var(--accent);color:#fff;cursor:pointer;font-size:13px;font-weight:500;display:flex;align-items:center;gap:5px;transition:background .15s}
+.btn-primary:hover{background:var(--acch)}
+.btn-ghost{padding:6px 12px;border:1px solid var(--bdr);border-radius:var(--rs);background:transparent;color:var(--t1);cursor:pointer;font-size:12px;transition:all .15s}
+.btn-ghost:hover{background:var(--c3);color:var(--t0)}
+
+/* MAIN LAYOUT */
+.main{display:flex;flex:1;overflow:hidden}
+
+/* CALENDAR */
+.cal-wrap{flex:1;overflow-y:auto;padding:18px;scrollbar-width:thin;scrollbar-color:var(--c4) transparent}
+.month-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+@media(max-width:1100px){.month-grid{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:780px){.month-grid{grid-template-columns:repeat(2,1fr)}}
+
+.mcard{background:var(--c1);border:1px solid var(--bdr);border-radius:var(--r);padding:13px;transition:border-color .15s}
+.mcard:hover{border-color:var(--c4)}
+.mhdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px}
+.mname{font-size:12px;font-weight:700;letter-spacing:.2px;color:var(--t0)}
+.mjc{font-size:10px;font-weight:600;padding:2px 6px;border-radius:8px;background:var(--accdim);color:var(--accent)}
+.wrow{display:grid;grid-template-columns:repeat(7,1fr);margin-bottom:3px}
+.wd{text-align:center;font-size:9px;font-weight:700;color:var(--t2);padding:2px 0;text-transform:uppercase;letter-spacing:.4px}
+.dgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:1px}
+.dc{aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:3px 2px 2px;border-radius:5px;cursor:pointer;font-size:11px;transition:background .12s;min-height:28px;position:relative}
+.dc:hover{background:var(--c3)}
+.dc.today{background:var(--accdim)}
+.dc.today .dn{color:var(--accent);font-weight:700}
+.dc.sel{background:var(--accent)}
+.dc.sel .dn{color:#fff;font-weight:700}
+.dn-row{display:flex;align-items:center;justify-content:center;gap:2px;width:100%}
+.dn{font-size:11px;line-height:1}
+.day-ct{font-size:8px;font-weight:700;color:var(--t1);line-height:1;background:var(--c3);padding:1px 3px;border-radius:3px}
+.dc.today .day-ct{color:var(--accent);background:rgba(113,97,239,.2)}
+.dc.sel .day-ct{color:rgba(255,255,255,.9);background:rgba(255,255,255,.2)}
+.day-bars{display:flex;gap:1px;width:100%}
+.dbar{height:3px;flex:1;border-radius:1px}
+.dc.sel .dbar{opacity:.75}
+.color-swatches{display:flex;flex-wrap:wrap;gap:6px;padding:2px 0}
+.cswatch{width:22px;height:22px;border-radius:50%;border:2px solid transparent;cursor:pointer;padding:0;transition:transform .12s,border-color .12s,box-shadow .12s;flex-shrink:0}
+.cswatch:hover{transform:scale(1.18)}
+.cswatch.active{border-color:#fff;box-shadow:0 0 0 2px rgba(255,255,255,.25)}
+.dc.booked:not(.today):not(.sel){background:rgba(113,97,239,.07);border:1px solid rgba(113,97,239,.18)}
+.dc.booked:not(.today):not(.sel):hover{background:var(--c3)}
+.dc.emp{cursor:default;pointer-events:none}
+
+/* SIDEBAR */
+.sidebar{width:0;flex-shrink:0;overflow:hidden;transition:width .25s cubic-bezier(.4,0,.2,1);display:flex;flex-direction:column;border-left:0 solid var(--bdr)}
+.sidebar.open{width:310px;border-left-width:1px}
+.sb-inner{width:310px;display:flex;flex-direction:column;height:100%;overflow:hidden}
+.sb-hdr{padding:14px 16px;display:flex;align-items:flex-start;justify-content:space-between;border-bottom:1px solid var(--bdr);flex-shrink:0}
+.sb-date{font-size:13px;font-weight:600}
+.sb-sub{font-size:11px;color:var(--t1);margin-top:2px}
+.sb-jobs{flex:1;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:7px;scrollbar-width:thin;scrollbar-color:var(--c4) transparent}
+.sb-empty{text-align:center;padding:36px 16px;color:var(--t2);font-size:12px}
+.sb-empty svg{display:block;margin:0 auto 10px;opacity:.25}
+.jitem{background:var(--c2);border:1px solid var(--bdr);border-radius:var(--rs);padding:9px 11px;cursor:pointer;transition:all .15s}
+.jitem:hover{background:var(--c3);border-color:var(--c4)}
+.jtop{display:flex;align-items:flex-start;justify-content:space-between;gap:6px;margin-bottom:4px}
+.jtitle{font-weight:500;font-size:12px;line-height:1.3}
+.sbadge{font-size:10px;font-weight:600;padding:2px 7px;border-radius:8px;white-space:nowrap;flex-shrink:0}
+.s-scheduled{background:var(--accdim);color:var(--accent)}
+.s-in-progress{background:var(--ambdim);color:var(--amber)}
+.s-completed{background:var(--greendim);color:var(--green)}
+.s-cancelled{background:var(--reddim);color:var(--red)}
+.jmeta{font-size:11px;color:var(--t1);display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.jmeta span{display:flex;align-items:center;gap:3px}
+.sb-foot{padding:10px;border-top:1px solid var(--bdr);flex-shrink:0}
+.btn-full{width:100%;padding:9px;border:none;border-radius:var(--rs);background:var(--accent);color:#fff;cursor:pointer;font-size:13px;font-weight:500;transition:background .15s;display:flex;align-items:center;justify-content:center;gap:6px}
+.btn-full:hover{background:var(--acch)}
+
+/* CUSTOMERS */
+.cust-wrap{flex:1;overflow-y:auto;padding:18px;scrollbar-width:thin;scrollbar-color:var(--c4) transparent}
+.vtbar{display:flex;align-items:center;gap:10px;margin-bottom:18px}
+.sbox{flex:1;max-width:300px;position:relative}
+.sbox input{width:100%;padding:7px 11px 7px 32px;background:var(--c2);border:1px solid var(--bdr);border-radius:var(--rs);color:var(--t0);font-size:13px;outline:none;transition:border-color .15s}
+.sbox input::placeholder{color:var(--t2)}
+.sbox input:focus{border-color:var(--accent)}
+.sbox svg{position:absolute;left:9px;top:50%;transform:translateY(-50%);color:var(--t2);pointer-events:none}
+.cgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:12px}
+.ccard{background:var(--c1);border:1px solid var(--bdr);border-radius:var(--r);padding:15px;cursor:pointer;transition:all .15s}
+.ccard:hover{border-color:var(--c4);background:var(--c2)}
+.ctop{display:flex;align-items:center;gap:11px;margin-bottom:10px}
+.cava{width:38px;height:38px;border-radius:50%;background:var(--accdim);color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0}
+.cname{font-weight:600;font-size:13px}
+.cco{font-size:11px;color:var(--t1);margin-top:1px}
+.cdet{display:flex;flex-direction:column;gap:3px}
+.cdrow{font-size:11px;color:var(--t1);display:flex;align-items:center;gap:5px}
+.cdrow svg{color:var(--t2);flex-shrink:0}
+.empty-state{text-align:center;padding:70px 20px;color:var(--t2)}
+.empty-state svg{display:block;margin:0 auto 14px;opacity:.18}
+.empty-state h3{font-size:15px;font-weight:600;color:var(--t1);margin-bottom:5px}
+.empty-state p{font-size:12px}
+
+/* MODAL */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;z-index:100;opacity:0;pointer-events:none;transition:opacity .2s;backdrop-filter:blur(5px)}
+.overlay.on{opacity:1;pointer-events:all}
+.modal{background:var(--c2);border:1px solid var(--bdr);border-radius:14px;width:460px;max-width:calc(100vw - 32px);max-height:calc(100vh - 48px);overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,.6);transform:scale(.95) translateY(10px);transition:transform .2s}
+.overlay.on .modal{transform:scale(1) translateY(0)}
+.mhd{padding:16px 18px;border-bottom:1px solid var(--bdr);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.mtitle{font-size:14px;font-weight:600}
+.mbody{padding:18px;overflow-y:auto;display:flex;flex-direction:column;gap:14px;scrollbar-width:thin;scrollbar-color:var(--c4) transparent}
+.frow{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.fg{display:flex;flex-direction:column;gap:5px}
+.fg label{font-size:11px;font-weight:700;color:var(--t1);text-transform:uppercase;letter-spacing:.5px}
+.fc{padding:8px 11px;background:var(--c3);border:1px solid var(--bdr);border-radius:var(--rs);color:var(--t0);font-size:13px;outline:none;transition:border-color .15s;font-family:inherit;width:100%}
+.fc::placeholder{color:var(--t2)}
+.fc:focus{border-color:var(--accent)}
+select.fc{cursor:pointer}
+select.fc option{background:var(--c2)}
+textarea.fc{resize:vertical;min-height:72px}
+.mft{padding:12px 18px;border-top:1px solid var(--bdr);display:flex;align-items:center;gap:8px;flex-shrink:0}
+.mft .sp{flex:1}
+.btn-del{padding:6px 13px;border:none;border-radius:var(--rs);background:var(--reddim);color:var(--red);cursor:pointer;font-size:12px;font-weight:500;transition:all .15s}
+.btn-del:hover{background:var(--red);color:#fff}
+.btn-can{padding:6px 13px;border:1px solid var(--bdr);border-radius:var(--rs);background:transparent;color:var(--t1);cursor:pointer;font-size:13px;transition:all .15s}
+.btn-can:hover{background:var(--c3);color:var(--t0)}
+.btn-save{padding:7px 17px;border:none;border-radius:var(--rs);background:var(--accent);color:#fff;cursor:pointer;font-size:13px;font-weight:500;transition:background .15s}
+.btn-save:hover{background:var(--acch)}
+
+/* DRIVE SYNC */
+.drive-area{display:flex;align-items:center;gap:7px}
+.drive-signin{padding:5px 12px;border:1px solid var(--bdr);border-radius:var(--rs);background:transparent;color:var(--t1);cursor:pointer;font-size:12px;display:flex;align-items:center;gap:5px;transition:all .15s}
+.drive-signin:hover{background:var(--c3);color:var(--t0);border-color:var(--c4)}
+.drive-status{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--t1);padding:5px 10px;border:1px solid var(--bdr);border-radius:var(--rs);background:var(--c2)}
+.sync-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.sync-dot.ok{background:var(--green)}
+.sync-dot.busy{background:var(--amber);animation:sdpulse 1s ease-in-out infinite}
+.sync-dot.err{background:var(--red)}
+@keyframes sdpulse{0%,100%{opacity:1}50%{opacity:.3}}
+.drive-signout{background:none;border:none;color:var(--t2);cursor:pointer;font-size:11px;padding:0;margin-left:2px;transition:color .15s}
+.drive-signout:hover{color:var(--t0)}
+.setup-banner{background:var(--ambdim);border-bottom:1px solid rgba(245,166,35,.3);padding:9px 18px;font-size:12px;color:var(--amber);flex-shrink:0;display:flex;align-items:center;gap:8px;line-height:1.5}
+.setup-banner a{color:var(--amber);font-weight:600}
+.setup-banner code{background:rgba(245,166,35,.15);padding:1px 5px;border-radius:3px;font-family:monospace;font-size:11px}
+</style>
+</head>
+<script src="https://apis.google.com/js/api.js" async defer onload="gapiLoaded()"></script>
+<script src="https://accounts.google.com/gsi/client" async defer onload="gisLoaded()"></script>
+<body>
+<div id="app"></div>
+<script>
+// ── CONFIG — paste your Google OAuth Client ID below ───────────────────────
+const GOOGLE_CLIENT_ID = 'YOUR_CLIENT_ID_HERE.apps.googleusercontent.com';
+const DRIVE_FILE = 'scheduler-data.json';
+
+// ── PALETTE ────────────────────────────────────────────────────────────────
+const CUST_COLORS = [
+  '#7161ef','#22d3a5','#38b2f8','#f5a623','#f472b6',
+  '#4ade80','#fb923c','#60a5fa','#e879f9','#facc15',
+  '#34d399','#f87171','#a78bfa','#2dd4bf','#fbbf24',
+];
+const STATUS_COLORS = {
+  'scheduled':'#7161ef','in-progress':'#f5a623','completed':'#22d3a5','cancelled':'#ff5f57'
+};
+function nextCustColor() {
+  const used = DB.customers.map(c=>c.color).filter(Boolean);
+  return CUST_COLORS.find(c=>!used.includes(c)) || CUST_COLORS[DB.customers.length % CUST_COLORS.length];
+}
+
+// ── UTILS ──────────────────────────────────────────────────────────────────
+const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2)+Date.now().toString(36));
+const esc = s => String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const WD = ['M','T','W','T','F','S','S'];
+
+const todayStr = () => new Date().toISOString().slice(0,10);
+
+function fmtLong(ds) {
+  const [y,m,d] = ds.split('-').map(Number);
+  return new Date(y,m-1,d).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'});
+}
+
+function getMonthCells(year, month) {
+  const firstDay = new Date(year, month, 1).getDay();
+  const offset = firstDay === 0 ? 6 : firstDay - 1;
+  const total = new Date(year, month+1, 0).getDate();
+  const cells = Array(offset).fill(null);
+  for (let d = 1; d <= total; d++) cells.push(d);
+  while (cells.length % 7) cells.push(null);
+  return cells;
+}
+
+function ds(y,m,d) { return `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`; }
+function initials(name) { return name.trim().split(/\s+/).slice(0,2).map(w=>w[0]).join('').toUpperCase(); }
+function statusLabel(s) { return s==='in-progress'?'In Progress':s.charAt(0).toUpperCase()+s.slice(1); }
+function statusClass(s) { return 's-'+s; }
+
+// ── DB ─────────────────────────────────────────────────────────────────────
+const DB = {
+  customers: [],
+  jobs: [],
+  load() {
+    try { const r = localStorage.getItem('sch1'); if(r){const d=JSON.parse(r);this.customers=d.customers||[];this.jobs=d.jobs||[];} } catch(e){}
+  },
+  save() {
+    const payload = JSON.stringify({customers:this.customers,jobs:this.jobs});
+    localStorage.setItem('sch1', payload);
+    driveSaveDebounced(payload);
+  },
+  addCustomer(c) { const r={id:uid(),createdAt:Date.now(),...c}; this.customers.push(r); this.save(); return r; },
+  updateCustomer(id,u) { const i=this.customers.findIndex(c=>c.id===id); if(i>-1){this.customers[i]={...this.customers[i],...u};this.save();} },
+  deleteCustomer(id) { this.customers=this.customers.filter(c=>c.id!==id); this.jobs=this.jobs.map(j=>j.customerId===id?{...j,customerId:null}:j); this.save(); },
+  addJob(j) { const r={id:uid(),createdAt:Date.now(),status:'scheduled',...j}; this.jobs.push(r); this.save(); return r; },
+  updateJob(id,u) { const i=this.jobs.findIndex(j=>j.id===id); if(i>-1){this.jobs[i]={...this.jobs[i],...u};this.save();} },
+  deleteJob(id) { this.jobs=this.jobs.filter(j=>j.id!==id); this.save(); },
+  jobsForDate(ds) { return this.jobs.filter(j=>j.date===ds).sort((a,b)=>(a.startTime||'').localeCompare(b.startTime||'')); },
+  jobsForMonth(y,m) { const p=`${y}-${String(m+1).padStart(2,'0')}-`; return this.jobs.filter(j=>j.date&&j.date.startsWith(p)); },
+  getCustomer(id) { return this.customers.find(c=>c.id===id)||null; },
+};
+
+// ── DRIVE ──────────────────────────────────────────────────────────────────
+let _gapiReady = false, _gisReady = false, _tokenClient = null, _driveFileId = null, _saveTimer = null;
+
+function gapiLoaded() {
+  gapi.load('client', async () => {
+    await gapi.client.init({ discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'] });
+    _gapiReady = true;
+    _driveCheckReady();
+  });
+}
+function gisLoaded() {
+  if (GOOGLE_CLIENT_ID.startsWith('YOUR_CLIENT_ID')) { S.driveReady = false; return; }
+  _tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: GOOGLE_CLIENT_ID,
+    scope: 'https://www.googleapis.com/auth/drive.file',
+    callback: _handleToken,
+  });
+  _gisReady = true;
+  _driveCheckReady();
+}
+function _driveCheckReady() {
+  if (_gapiReady && _gisReady) { S.driveReady = true; render(); }
+}
+async function _handleToken(resp) {
+  if (resp.error) { S.driveError = 'Sign-in failed'; render(); return; }
+  S.driveSignedIn = true; S.driveSyncing = true; S.driveError = null; render();
+  await driveLoad();
+  S.driveSyncing = false; render();
+}
+function driveSignIn() {
+  _tokenClient.requestAccessToken({ prompt: gapi.client.getToken() ? '' : 'consent' });
+}
+function driveSignOut() {
+  const t = gapi.client.getToken();
+  if (t) { google.accounts.oauth2.revoke(t.access_token, ()=>{}); gapi.client.setToken(''); }
+  S.driveSignedIn = false; S.driveError = null; _driveFileId = null; render();
+}
+async function driveLoad() {
+  try {
+    const cachedId = localStorage.getItem('sch1_fid');
+    let fileId = cachedId;
+    if (fileId) {
+      try {
+        const r = await gapi.client.drive.files.get({ fileId, alt: 'media' });
+        _applyDriveData(r.body); _driveFileId = fileId; return;
+      } catch(e) { localStorage.removeItem('sch1_fid'); fileId = null; }
+    }
+    const list = await gapi.client.drive.files.list({
+      q: `name='${DRIVE_FILE}' and trashed=false`,
+      fields: 'files(id)', spaces: 'drive', pageSize: 1,
+    });
+    if (list.result.files.length) {
+      _driveFileId = list.result.files[0].id;
+      localStorage.setItem('sch1_fid', _driveFileId);
+      const r = await gapi.client.drive.files.get({ fileId: _driveFileId, alt: 'media' });
+      _applyDriveData(r.body);
+    } else {
+      const payload = JSON.stringify({customers:DB.customers,jobs:DB.jobs});
+      await _driveWrite(payload);
+    }
+  } catch(e) { S.driveError = 'Load failed'; }
+}
+function _applyDriveData(body) {
+  try {
+    const d = JSON.parse(body);
+    DB.customers = d.customers||[]; DB.jobs = d.jobs||[];
+    localStorage.setItem('sch1', body);
+    render();
+  } catch(e) {}
+}
+async function _driveWrite(content) {
+  const boundary = 'sch_bnd';
+  const meta = JSON.stringify({ name: DRIVE_FILE, mimeType: 'application/json' });
+  const body = `--${boundary}\r\nContent-Type: application/json\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${content}\r\n--${boundary}--`;
+  if (_driveFileId) {
+    await gapi.client.request({ path:`/upload/drive/v3/files/${_driveFileId}`, method:'PATCH',
+      params:{uploadType:'media'}, headers:{'Content-Type':'application/json'}, body:content });
+  } else {
+    const r = await gapi.client.request({ path:'/upload/drive/v3/files', method:'POST',
+      params:{uploadType:'multipart'}, headers:{'Content-Type':`multipart/related; boundary="${boundary}"`}, body });
+    _driveFileId = r.result.id;
+    localStorage.setItem('sch1_fid', _driveFileId);
+  }
+}
+function driveSaveDebounced(payload) {
+  if (!S.driveSignedIn) return;
+  clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(async () => {
+    S.driveSyncing = true; render();
+    try { await _driveWrite(payload); S.driveError = null; }
+    catch(e) { S.driveError = 'Save failed'; }
+    S.driveSyncing = false; render();
+  }, 1500);
+}
+
+// ── STATE ──────────────────────────────────────────────────────────────────
+const S = {
+  year: new Date().getFullYear(),
+  view: 'calendar',
+  selDate: null,
+  jobModal: false, editJobId: null, preDate: null,
+  custModal: false, editCustId: null,
+  search: '',
+  driveReady: false, driveSignedIn: false, driveSyncing: false, driveError: null,
+};
+
+// ── ICONS ──────────────────────────────────────────────────────────────────
+const I = {
+  cal: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>`,
+  users: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
+  plus: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>`,
+  left: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>`,
+  right: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>`,
+  x: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>`,
+  clock: `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>`,
+  pin: `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>`,
+  person: `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`,
+  phone: `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 2.18h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L7.91 9.91a16 16 0 0 0 6.18 6.18l.99-.99a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>`,
+  mail: `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>`,
+  search: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>`,
+  empty: `<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg>`,
+};
+
+// ── RENDER ─────────────────────────────────────────────────────────────────
+function render() {
+  document.getElementById('app').innerHTML =
+    renderHeader() +
+    renderSetupBanner() +
+    `<div class="main">${S.view==='calendar'?renderCal():renderCusts()}${renderSidebar()}</div>` +
+    renderOverlay();
+}
+function renderDriveBtn() {
+  if (GOOGLE_CLIENT_ID.startsWith('YOUR_CLIENT_ID')) return '';
+  if (!S.driveReady) return `<div class="drive-area"><span style="font-size:11px;color:var(--t2)">Drive loading…</span></div>`;
+  if (!S.driveSignedIn) {
+    return `<div class="drive-area"><button class="drive-signin" data-a="drivesignin">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2a10 10 0 1 0 0 20A10 10 0 0 0 12 2z"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+      Sync with Drive
+    </button></div>`;
+  }
+  const dot = S.driveError ? 'err' : S.driveSyncing ? 'busy' : 'ok';
+  const label = S.driveError || (S.driveSyncing ? 'Saving…' : 'Synced');
+  return `<div class="drive-area"><div class="drive-status">
+    <span class="sync-dot ${dot}"></span>${label}
+    <button class="drive-signout" data-a="drivesignout">Sign out</button>
+  </div></div>`;
+}
+function renderSetupBanner() {
+  if (!GOOGLE_CLIENT_ID.startsWith('YOUR_CLIENT_ID')) return '';
+  return `<div class="setup-banner">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+    <span>To enable Google Drive sync: <a href="https://console.cloud.google.com/" target="_blank">create an OAuth Client ID</a>, then replace <code>YOUR_CLIENT_ID_HERE.apps.googleusercontent.com</code> at the top of this file with your Client ID.</span>
+  </div>`;
+}
+
+function renderHeader() {
+  return `<header class="hdr">
+    <div class="logo">${I.cal} Scheduler</div>
+    ${S.view==='calendar'?`<div class="yr-nav">
+      <button class="btn-icon" data-a="yprev">${I.left}</button>
+      <span class="yr-label">${S.year}</span>
+      <button class="btn-icon" data-a="ynext">${I.right}</button>
+    </div>`:''}
+    <div class="spacer"></div>
+    <div class="hdr-right">
+      ${S.year!==new Date().getFullYear()&&S.view==='calendar'?`<button class="btn-ghost" data-a="today">Today</button>`:''}
+      <div class="tabs">
+        <button class="tab ${S.view==='calendar'?'on':''}" data-a="vcal">${I.cal} Calendar</button>
+        <button class="tab ${S.view==='customers'?'on':''}" data-a="vcust">${I.users} Customers</button>
+      </div>
+      ${renderDriveBtn()}
+      <button class="btn-primary" data-a="addjob">${I.plus} Add Job</button>
+    </div>
+  </header>`;
+}
+
+function renderCal() {
+  const today = todayStr();
+  const months = MONTHS.map((name, m) => {
+    const cells = getMonthCells(S.year, m);
+    const mjobs = DB.jobsForMonth(S.year, m);
+    const jmap = {};
+    mjobs.forEach(j => {
+      const cust = j.customerId ? DB.getCustomer(j.customerId) : null;
+      const color = cust?.color || STATUS_COLORS[j.status] || '#7161ef';
+      const d = parseInt(j.date.slice(8));
+      (jmap[d]=jmap[d]||[]).push(color);
+    });
+    const pre = `${S.year}-${String(m+1).padStart(2,'0')}-`;
+    const daysHtml = cells.map(d => {
+      if (!d) return `<div class="dc emp"></div>`;
+      const dateS = `${pre}${String(d).padStart(2,'0')}`;
+      const isTod = dateS===today, isSel = dateS===S.selDate;
+      const colors = jmap[d]||[];
+      const count = colors.length;
+      const bars = colors.slice(0,5).map(c=>`<span class="dbar" style="background:${c}"></span>`).join('');
+      return `<div class="dc${isTod?' today':''}${isSel?' sel':''}${count?' booked':''}" data-date="${dateS}">
+        <div class="dn-row"><span class="dn">${d}</span>${count?`<span class="day-ct">${count}</span>`:''}</div>
+        ${bars?`<div class="day-bars">${bars}</div>`:'<div></div>'}
+      </div>`;
+    }).join('');
+    return `<div class="mcard">
+      <div class="mhdr"><span class="mname">${name}</span>${mjobs.length?`<span class="mjc">${mjobs.length}</span>`:''}</div>
+      <div class="wrow">${WD.map(w=>`<div class="wd">${w}</div>`).join('')}</div>
+      <div class="dgrid">${daysHtml}</div>
+    </div>`;
+  }).join('');
+  return `<div class="cal-wrap"><div class="month-grid">${months}</div></div>`;
+}
+
+function renderSidebar() {
+  if (!S.selDate) return `<div class="sidebar"></div>`;
+  const jobs = DB.jobsForDate(S.selDate);
+  const label = fmtLong(S.selDate);
+  const jobsHtml = jobs.length ? jobs.map(j => {
+    const cust = j.customerId ? DB.getCustomer(j.customerId) : null;
+    const borderColor = cust?.color || STATUS_COLORS[j.status] || '#7161ef';
+    return `<div class="jitem" data-a="editjob" data-jid="${j.id}" style="border-left:3px solid ${borderColor}">
+      <div class="jtop">
+        <span class="jtitle">${esc(j.title)}</span>
+        <span class="sbadge ${statusClass(j.status)}">${statusLabel(j.status)}</span>
+      </div>
+      <div class="jmeta">
+        ${j.startTime?`<span>${I.clock} ${j.startTime}${j.endTime?' – '+j.endTime:''}</span>`:''}
+        ${cust?`<span>${I.person} ${esc(cust.name)}</span>`:''}
+        ${j.location?`<span>${I.pin} ${esc(j.location)}</span>`:''}
+      </div>
+    </div>`;
+  }).join('') : `<div class="sb-empty">${I.empty}<div>No jobs for this day</div></div>`;
+  return `<div class="sidebar open"><div class="sb-inner">
+    <div class="sb-hdr">
+      <div><div class="sb-date">${label}</div><div class="sb-sub">${jobs.length} job${jobs.length!==1?'s':''}</div></div>
+      <button class="btn-icon" data-a="closesb">${I.x}</button>
+    </div>
+    <div class="sb-jobs">${jobsHtml}</div>
+    <div class="sb-foot">
+      <button class="btn-full" data-a="addjobdate" data-date="${S.selDate}">${I.plus} Add Job for This Day</button>
+    </div>
+  </div></div>`;
+}
+
+function renderOverlay() {
+  if (S.jobModal) return renderJobModal();
+  if (S.custModal) return renderCustModal();
+  return `<div class="overlay"></div>`;
+}
+
+function renderJobModal() {
+  const j = S.editJobId ? DB.jobs.find(x=>x.id===S.editJobId) : null;
+  const v = k => esc(j?.[k]||'');
+  const date = j?.date || S.preDate || todayStr();
+  const status = j?.status||'scheduled';
+  const custOpts = DB.customers.map(c =>
+    `<option value="${c.id}" ${j?.customerId===c.id?'selected':''}>${esc(c.name)}${c.company?` (${esc(c.company)})`:''}</option>`
+  ).join('');
+  return `<div class="overlay on">
+    <div class="modal">
+      <div class="mhd"><span class="mtitle">${j?'Edit Job':'New Job'}</span><button class="btn-icon" data-a="closemod">${I.x}</button></div>
+      <div class="mbody">
+        <div class="fg"><label>Job Title *</label>
+          <input class="fc" id="f-title" type="text" value="${v('title')}" placeholder="e.g. Boiler service, Roof inspection…" autocomplete="off">
+        </div>
+        <div class="frow">
+          <div class="fg"><label>Customer</label>
+            <select class="fc" id="f-cust"><option value="">— None —</option>${custOpts}</select>
+          </div>
+          <div class="fg"><label>Status</label>
+            <select class="fc" id="f-status">
+              <option value="scheduled" ${status==='scheduled'?'selected':''}>Scheduled</option>
+              <option value="in-progress" ${status==='in-progress'?'selected':''}>In Progress</option>
+              <option value="completed" ${status==='completed'?'selected':''}>Completed</option>
+              <option value="cancelled" ${status==='cancelled'?'selected':''}>Cancelled</option>
+            </select>
+          </div>
+        </div>
+        <div class="frow">
+          <div class="fg"><label>Date *</label><input class="fc" id="f-date" type="date" value="${date}"></div>
+          <div class="fg"></div>
+        </div>
+        <div class="frow">
+          <div class="fg"><label>Start Time</label><input class="fc" id="f-start" type="time" value="${v('startTime')}"></div>
+          <div class="fg"><label>End Time</label><input class="fc" id="f-end" type="time" value="${v('endTime')}"></div>
+        </div>
+        <div class="fg"><label>Location</label>
+          <input class="fc" id="f-loc" type="text" value="${v('location')}" placeholder="Address or site location…">
+        </div>
+        <div class="fg"><label>Notes</label>
+          <textarea class="fc" id="f-notes" placeholder="Additional details…">${v('description')}</textarea>
+        </div>
+      </div>
+      <div class="mft">
+        ${j?`<button class="btn-del" data-a="deljob">Delete</button>`:''}
+        <div class="sp"></div>
+        <button class="btn-can" data-a="closemod">Cancel</button>
+        <button class="btn-save" data-a="savejob">Save Job</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderCustModal() {
+  const c = S.editCustId ? DB.customers.find(x=>x.id===S.editCustId) : null;
+  const v = k => esc(c?.[k]||'');
+  const color = c?.color || nextCustColor();
+  const swatches = CUST_COLORS.map(col =>
+    `<button type="button" class="cswatch${col===color?' active':''}" data-a="setcolor" data-color="${col}" style="background:${col}"></button>`
+  ).join('');
+  return `<div class="overlay on">
+    <div class="modal">
+      <div class="mhd"><span class="mtitle">${c?'Edit Customer':'New Customer'}</span><button class="btn-icon" data-a="closemod">${I.x}</button></div>
+      <div class="mbody">
+        <div class="frow">
+          <div class="fg"><label>Name *</label><input class="fc" id="c-name" type="text" value="${v('name')}" placeholder="Full name" autocomplete="off"></div>
+          <div class="fg"><label>Company</label><input class="fc" id="c-co" type="text" value="${v('company')}" placeholder="Business name"></div>
+        </div>
+        <div class="fg"><label>Calendar Colour</label>
+          <div class="color-swatches">${swatches}</div>
+          <input type="hidden" id="c-color-val" value="${color}">
+        </div>
+        <div class="frow">
+          <div class="fg"><label>Phone</label><input class="fc" id="c-phone" type="tel" value="${v('phone')}" placeholder="+44…"></div>
+          <div class="fg"><label>Email</label><input class="fc" id="c-email" type="email" value="${v('email')}" placeholder="email@example.com"></div>
+        </div>
+        <div class="fg"><label>Address</label><input class="fc" id="c-addr" type="text" value="${v('address')}" placeholder="Street, town, postcode"></div>
+        <div class="fg"><label>Notes</label><textarea class="fc" id="c-notes" placeholder="Any notes…">${v('notes')}</textarea></div>
+      </div>
+      <div class="mft">
+        ${c?`<button class="btn-del" data-a="delcust">Delete</button>`:''}
+        <div class="sp"></div>
+        <button class="btn-can" data-a="closemod">Cancel</button>
+        <button class="btn-save" data-a="savecust">Save Customer</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderCusts() {
+  const q = S.search.toLowerCase();
+  const list = DB.customers.filter(c =>
+    !q || c.name.toLowerCase().includes(q) ||
+    (c.company||'').toLowerCase().includes(q) ||
+    (c.phone||'').includes(q) ||
+    (c.email||'').toLowerCase().includes(q)
+  );
+  const cards = list.length ? list.map(c => {
+    const col = c.color || '#7161ef';
+    const colDim = col+'28';
+    return `
+    <div class="ccard" data-a="editcust" data-cid="${c.id}">
+      <div class="ctop">
+        <div class="cava" style="background:${colDim};color:${col}">${esc(initials(c.name))}</div>
+        <div><div class="cname">${esc(c.name)}</div>${c.company?`<div class="cco">${esc(c.company)}</div>`:''}</div>
+      </div>
+      <div class="cdet">
+        ${c.phone?`<div class="cdrow">${I.phone} ${esc(c.phone)}</div>`:''}
+        ${c.email?`<div class="cdrow">${I.mail} ${esc(c.email)}</div>`:''}
+        ${c.address?`<div class="cdrow">${I.pin} ${esc(c.address)}</div>`:''}
+      </div>
+    </div>`;
+  }).join('') :
+    `<div class="empty-state" style="grid-column:1/-1">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      <h3>${q?'No results':'No customers yet'}</h3>
+      <p>${q?`Nothing matches "${esc(q)}"`:'Add your first customer to get started'}</p>
+    </div>`;
+  return `<div class="cust-wrap">
+    <div class="vtbar">
+      <div class="sbox">${I.search}<input type="text" placeholder="Search customers…" value="${esc(S.search)}" data-a="search" id="srch"></div>
+      <button class="btn-primary" data-a="addcust">${I.plus} Add Customer</button>
+    </div>
+    <div class="cgrid">${cards}</div>
+  </div>`;
+}
+
+// ── ACTIONS ────────────────────────────────────────────────────────────────
+function saveJob() {
+  const title = document.getElementById('f-title')?.value.trim();
+  const date  = document.getElementById('f-date')?.value;
+  if (!title) { document.getElementById('f-title').focus(); return; }
+  if (!date)  { document.getElementById('f-date').focus(); return; }
+  const data = {
+    title, date,
+    customerId: document.getElementById('f-cust')?.value || null,
+    startTime:  document.getElementById('f-start')?.value || '',
+    endTime:    document.getElementById('f-end')?.value || '',
+    location:   document.getElementById('f-loc')?.value.trim() || '',
+    status:     document.getElementById('f-status')?.value || 'scheduled',
+    description:document.getElementById('f-notes')?.value.trim() || '',
+  };
+  if (S.editJobId) DB.updateJob(S.editJobId, data);
+  else DB.addJob(data);
+  S.jobModal=false; S.editJobId=null;
+  S.selDate=date;
+  S.year=parseInt(date.slice(0,4));
+  render();
+}
+
+function saveCust() {
+  const name = document.getElementById('c-name')?.value.trim();
+  if (!name) { document.getElementById('c-name').focus(); return; }
+  const data = {
+    name,
+    color:   document.getElementById('c-color-val')?.value || nextCustColor(),
+    company: document.getElementById('c-co')?.value.trim()||'',
+    phone:   document.getElementById('c-phone')?.value.trim()||'',
+    email:   document.getElementById('c-email')?.value.trim()||'',
+    address: document.getElementById('c-addr')?.value.trim()||'',
+    notes:   document.getElementById('c-notes')?.value.trim()||'',
+  };
+  if (S.editCustId) DB.updateCustomer(S.editCustId, data);
+  else DB.addCustomer(data);
+  S.custModal=false; S.editCustId=null; render();
+}
+
+function closeModal() { S.jobModal=false; S.custModal=false; S.editJobId=null; S.editCustId=null; render(); }
+
+// ── EVENTS ─────────────────────────────────────────────────────────────────
+document.addEventListener('click', e => {
+  if (e.target.classList.contains('overlay')) { closeModal(); return; }
+  const el = e.target.closest('[data-a]');
+  const dc = e.target.closest('.dc:not(.emp)');
+  if (!el && dc && !S.jobModal && !S.custModal) {
+    S.selDate = dc.dataset.date; render(); return;
+  }
+  if (!el) return;
+  switch(el.dataset.a) {
+    case 'yprev': S.year--; render(); break;
+    case 'ynext': S.year++; render(); break;
+    case 'today': S.year=new Date().getFullYear(); render(); break;
+    case 'vcal':  S.view='calendar'; render(); break;
+    case 'vcust': S.view='customers'; render(); break;
+    case 'closesb': S.selDate=null; render(); break;
+    case 'closemod': closeModal(); break;
+    case 'addjob':
+      S.jobModal=true; S.editJobId=null; S.custModal=false;
+      S.preDate=S.selDate||todayStr(); render();
+      setTimeout(()=>document.getElementById('f-title')?.focus(),40); break;
+    case 'addjobdate':
+      S.jobModal=true; S.editJobId=null; S.custModal=false;
+      S.preDate=el.dataset.date; render();
+      setTimeout(()=>document.getElementById('f-title')?.focus(),40); break;
+    case 'editjob':
+      S.editJobId=el.dataset.jid; S.jobModal=true; S.custModal=false; render(); break;
+    case 'savejob': saveJob(); break;
+    case 'deljob':
+      if (confirm('Delete this job?')) { DB.deleteJob(S.editJobId); S.jobModal=false; S.editJobId=null; render(); } break;
+    case 'addcust':
+      S.custModal=true; S.editCustId=null; S.jobModal=false; render();
+      setTimeout(()=>document.getElementById('c-name')?.focus(),40); break;
+    case 'editcust':
+      S.editCustId=el.dataset.cid; S.custModal=true; S.jobModal=false; render(); break;
+    case 'savecust': saveCust(); break;
+    case 'delcust':
+      if (confirm('Delete this customer? Their jobs will remain.')) { DB.deleteCustomer(S.editCustId); S.custModal=false; S.editCustId=null; render(); } break;
+    case 'drivesignin': driveSignIn(); break;
+    case 'drivesignout': driveSignOut(); break;
+    case 'setcolor':
+      document.querySelectorAll('.cswatch').forEach(s=>s.classList.remove('active'));
+      el.classList.add('active');
+      const cv = document.getElementById('c-color-val');
+      if (cv) cv.value = el.dataset.color;
+      break;
+  }
+});
+
+// Auto-fill location from customer
+document.addEventListener('change', e => {
+  if (e.target.id==='f-cust') {
+    const cust = DB.getCustomer(e.target.value);
+    const loc = document.getElementById('f-loc');
+    if (loc && cust?.address && !loc.value) loc.value = cust.address;
+  }
+});
+
+// Live customer search without losing focus
+document.addEventListener('input', e => {
+  if (e.target.dataset.a==='search') {
+    S.search = e.target.value;
+    clearTimeout(document._st);
+    document._st = setTimeout(() => {
+      const pos = e.target.selectionStart;
+      render();
+      const el = document.getElementById('srch');
+      if (el) { el.focus(); el.setSelectionRange(pos,pos); }
+    }, 120);
+  }
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key==='Escape') {
+    if (S.jobModal||S.custModal) closeModal();
+    else if (S.selDate) { S.selDate=null; render(); }
+  }
+  if ((e.key==='Enter')&&(e.ctrlKey||e.metaKey)) {
+    if (S.jobModal) saveJob();
+    else if (S.custModal) saveCust();
+  }
+});
+
+// ── INIT ───────────────────────────────────────────────────────────────────
+DB.load();
+render();
+</script>
+</body>
+</html>
