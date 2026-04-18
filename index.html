@@ -179,7 +179,7 @@ textarea.fc{resize:vertical;min-height:72px}
 <div id="app"></div>
 <script>
 // ── CONFIG — paste your Google OAuth Client ID below ───────────────────────
-const GOOGLE_CLIENT_ID = '1036208514850-0a4fg11ck29iaqjiovmqjaemv4acbelq.apps.googleusercontent.com ';
+const GOOGLE_CLIENT_ID = '1036208514850-0a4fg11ck29iaqjiovmqjaemv4acbelq.apps.googleusercontent.com';
 const DRIVE_FILE = 'scheduler-data.json';
 
 // ── PALETTE ────────────────────────────────────────────────────────────────
@@ -251,32 +251,42 @@ const DB = {
 let _gapiReady = false, _gisReady = false, _tokenClient = null, _driveFileId = null, _saveTimer = null;
 
 function gapiLoaded() {
+  console.log('[Drive] gapi script loaded, initialising client…');
   gapi.load('client', async () => {
-    await gapi.client.init({});
-    _gapiReady = true;
-    _driveCheckReady();
+    try {
+      await gapi.client.init({});
+      console.log('[Drive] gapi client ready');
+      _gapiReady = true;
+      _driveCheckReady();
+    } catch(e) { console.error('[Drive] gapi.client.init failed:', e); }
   });
 }
 function gisLoaded() {
-  if (GOOGLE_CLIENT_ID.startsWith('YOUR_CLIENT_ID')) { S.driveReady = false; return; }
+  console.log('[Drive] GIS script loaded');
+  if (GOOGLE_CLIENT_ID.startsWith('YOUR_CLIENT_ID')) { console.warn('[Drive] No Client ID set'); return; }
   _tokenClient = google.accounts.oauth2.initTokenClient({
     client_id: GOOGLE_CLIENT_ID,
     scope: 'https://www.googleapis.com/auth/drive.file',
     callback: _handleToken,
   });
+  console.log('[Drive] token client created');
   _gisReady = true;
   _driveCheckReady();
 }
 function _driveCheckReady() {
-  if (_gapiReady && _gisReady) { S.driveReady = true; render(); }
+  console.log(`[Drive] ready check — gapi:${_gapiReady} gis:${_gisReady}`);
+  if (_gapiReady && _gisReady) { S.driveReady = true; console.log('[Drive] both ready, showing button'); render(); }
 }
 async function _handleToken(resp) {
-  if (resp.error) { S.driveError = resp.error; render(); return; }
+  console.log('[Drive] token response:', resp);
+  if (resp.error) { S.driveError = resp.error; console.error('[Drive] auth error:', resp.error); render(); return; }
+  console.log('[Drive] signed in, loading data…');
   S.driveSignedIn = true; S.driveSyncing = true; S.driveError = null; render();
-  try { await driveLoad(); } catch(e) { S.driveError = e.message||'Load failed'; }
+  try { await driveLoad(); } catch(e) { console.error('[Drive] driveLoad threw:', e); S.driveError = e.message||'Load failed'; }
   S.driveSyncing = false; render();
 }
 function driveSignIn() {
+  console.log('[Drive] requesting access token…');
   _tokenClient.requestAccessToken({ prompt: gapi.client.getToken() ? '' : 'consent' });
 }
 function driveSignOut() {
@@ -285,24 +295,33 @@ function driveSignOut() {
   S.driveSignedIn = false; S.driveError = null; _driveFileId = null; render();
 }
 async function driveLoad() {
+  console.log('[Drive] driveLoad started');
   const req = (cfg) => gapi.client.request(cfg);
   const cachedId = localStorage.getItem('sch1_fid');
+  console.log('[Drive] cached file id:', cachedId);
   if (cachedId) {
     try {
+      console.log('[Drive] fetching cached file…');
       const r = await req({ path:`https://www.googleapis.com/drive/v3/files/${cachedId}`, params:{alt:'media'} });
+      console.log('[Drive] cached file loaded ok');
       _driveFileId = cachedId; _applyDriveData(r.body); return;
-    } catch(e) { localStorage.removeItem('sch1_fid'); }
+    } catch(e) { console.warn('[Drive] cached file fetch failed, searching:', e); localStorage.removeItem('sch1_fid'); }
   }
+  console.log('[Drive] searching Drive for', DRIVE_FILE);
   const list = await req({ path:'https://www.googleapis.com/drive/v3/files',
     params:{ q:`name='${DRIVE_FILE}' and trashed=false`, fields:'files(id)', spaces:'drive', pageSize:1 } });
+  console.log('[Drive] search response:', list.body);
   const files = JSON.parse(list.body).files || [];
   if (files.length) {
+    console.log('[Drive] found existing file, id:', files[0].id);
     _driveFileId = files[0].id;
     localStorage.setItem('sch1_fid', _driveFileId);
     const r = await req({ path:`https://www.googleapis.com/drive/v3/files/${_driveFileId}`, params:{alt:'media'} });
     _applyDriveData(r.body);
   } else {
+    console.log('[Drive] no file found, creating new one…');
     await _driveWrite(JSON.stringify({customers:DB.customers,jobs:DB.jobs}));
+    console.log('[Drive] new file created, id:', _driveFileId);
   }
 }
 function _applyDriveData(body) {
@@ -310,13 +329,16 @@ function _applyDriveData(body) {
     const d = JSON.parse(body);
     DB.customers = d.customers||[]; DB.jobs = d.jobs||[];
     localStorage.setItem('sch1', body);
+    console.log('[Drive] data applied —', DB.customers.length, 'customers,', DB.jobs.length, 'jobs');
     render();
-  } catch(e) {}
+  } catch(e) { console.error('[Drive] _applyDriveData parse error:', e); }
 }
 async function _driveWrite(content) {
+  console.log('[Drive] writing file, fileId:', _driveFileId);
   if (_driveFileId) {
     await gapi.client.request({ path:`https://www.googleapis.com/upload/drive/v3/files/${_driveFileId}`,
       method:'PATCH', params:{uploadType:'media'}, headers:{'Content-Type':'application/json'}, body:content });
+    console.log('[Drive] file updated');
   } else {
     const boundary = 'sch_bnd';
     const meta = JSON.stringify({ name:DRIVE_FILE, mimeType:'application/json' });
@@ -325,6 +347,7 @@ async function _driveWrite(content) {
       method:'POST', params:{uploadType:'multipart'}, headers:{'Content-Type':`multipart/related; boundary="${boundary}"`}, body });
     _driveFileId = r.result.id;
     localStorage.setItem('sch1_fid', _driveFileId);
+    console.log('[Drive] file created, id:', _driveFileId);
   }
 }
 function driveSaveDebounced(payload) {
