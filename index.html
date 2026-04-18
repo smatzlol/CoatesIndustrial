@@ -252,7 +252,7 @@ let _gapiReady = false, _gisReady = false, _tokenClient = null, _driveFileId = n
 
 function gapiLoaded() {
   gapi.load('client', async () => {
-    await gapi.client.init({ discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'] });
+    await gapi.client.init({});
     _gapiReady = true;
     _driveCheckReady();
   });
@@ -271,9 +271,9 @@ function _driveCheckReady() {
   if (_gapiReady && _gisReady) { S.driveReady = true; render(); }
 }
 async function _handleToken(resp) {
-  if (resp.error) { S.driveError = 'Sign-in failed'; render(); return; }
+  if (resp.error) { S.driveError = resp.error; render(); return; }
   S.driveSignedIn = true; S.driveSyncing = true; S.driveError = null; render();
-  await driveLoad();
+  try { await driveLoad(); } catch(e) { S.driveError = e.message||'Load failed'; }
   S.driveSyncing = false; render();
 }
 function driveSignIn() {
@@ -285,29 +285,25 @@ function driveSignOut() {
   S.driveSignedIn = false; S.driveError = null; _driveFileId = null; render();
 }
 async function driveLoad() {
-  try {
-    const cachedId = localStorage.getItem('sch1_fid');
-    let fileId = cachedId;
-    if (fileId) {
-      try {
-        const r = await gapi.client.drive.files.get({ fileId, alt: 'media' });
-        _applyDriveData(r.body); _driveFileId = fileId; return;
-      } catch(e) { localStorage.removeItem('sch1_fid'); fileId = null; }
-    }
-    const list = await gapi.client.drive.files.list({
-      q: `name='${DRIVE_FILE}' and trashed=false`,
-      fields: 'files(id)', spaces: 'drive', pageSize: 1,
-    });
-    if (list.result.files.length) {
-      _driveFileId = list.result.files[0].id;
-      localStorage.setItem('sch1_fid', _driveFileId);
-      const r = await gapi.client.drive.files.get({ fileId: _driveFileId, alt: 'media' });
-      _applyDriveData(r.body);
-    } else {
-      const payload = JSON.stringify({customers:DB.customers,jobs:DB.jobs});
-      await _driveWrite(payload);
-    }
-  } catch(e) { S.driveError = 'Load failed'; }
+  const req = (cfg) => gapi.client.request(cfg);
+  const cachedId = localStorage.getItem('sch1_fid');
+  if (cachedId) {
+    try {
+      const r = await req({ path:`https://www.googleapis.com/drive/v3/files/${cachedId}`, params:{alt:'media'} });
+      _driveFileId = cachedId; _applyDriveData(r.body); return;
+    } catch(e) { localStorage.removeItem('sch1_fid'); }
+  }
+  const list = await req({ path:'https://www.googleapis.com/drive/v3/files',
+    params:{ q:`name='${DRIVE_FILE}' and trashed=false`, fields:'files(id)', spaces:'drive', pageSize:1 } });
+  const files = JSON.parse(list.body).files || [];
+  if (files.length) {
+    _driveFileId = files[0].id;
+    localStorage.setItem('sch1_fid', _driveFileId);
+    const r = await req({ path:`https://www.googleapis.com/drive/v3/files/${_driveFileId}`, params:{alt:'media'} });
+    _applyDriveData(r.body);
+  } else {
+    await _driveWrite(JSON.stringify({customers:DB.customers,jobs:DB.jobs}));
+  }
 }
 function _applyDriveData(body) {
   try {
@@ -318,15 +314,15 @@ function _applyDriveData(body) {
   } catch(e) {}
 }
 async function _driveWrite(content) {
-  const boundary = 'sch_bnd';
-  const meta = JSON.stringify({ name: DRIVE_FILE, mimeType: 'application/json' });
-  const body = `--${boundary}\r\nContent-Type: application/json\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${content}\r\n--${boundary}--`;
   if (_driveFileId) {
-    await gapi.client.request({ path:`/upload/drive/v3/files/${_driveFileId}`, method:'PATCH',
-      params:{uploadType:'media'}, headers:{'Content-Type':'application/json'}, body:content });
+    await gapi.client.request({ path:`https://www.googleapis.com/upload/drive/v3/files/${_driveFileId}`,
+      method:'PATCH', params:{uploadType:'media'}, headers:{'Content-Type':'application/json'}, body:content });
   } else {
-    const r = await gapi.client.request({ path:'/upload/drive/v3/files', method:'POST',
-      params:{uploadType:'multipart'}, headers:{'Content-Type':`multipart/related; boundary="${boundary}"`}, body });
+    const boundary = 'sch_bnd';
+    const meta = JSON.stringify({ name:DRIVE_FILE, mimeType:'application/json' });
+    const body = `--${boundary}\r\nContent-Type: application/json\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${content}\r\n--${boundary}--`;
+    const r = await gapi.client.request({ path:'https://www.googleapis.com/upload/drive/v3/files',
+      method:'POST', params:{uploadType:'multipart'}, headers:{'Content-Type':`multipart/related; boundary="${boundary}"`}, body });
     _driveFileId = r.result.id;
     localStorage.setItem('sch1_fid', _driveFileId);
   }
@@ -382,10 +378,13 @@ function renderDriveBtn() {
   if (GOOGLE_CLIENT_ID.startsWith('YOUR_CLIENT_ID')) return '';
   if (!S.driveReady) return `<div class="drive-area"><span style="font-size:11px;color:var(--t2)">Drive loading…</span></div>`;
   if (!S.driveSignedIn) {
-    return `<div class="drive-area"><button class="drive-signin" data-a="drivesignin">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2a10 10 0 1 0 0 20A10 10 0 0 0 12 2z"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-      Sync with Drive
-    </button></div>`;
+    return `<div class="drive-area" style="display:flex;flex-direction:column;align-items:flex-end;gap:3px">
+      <button class="drive-signin" data-a="drivesignin">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2a10 10 0 1 0 0 20A10 10 0 0 0 12 2z"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+        Sync with Drive
+      </button>
+      ${S.driveError?`<span style="font-size:10px;color:var(--red)">${esc(S.driveError)}</span>`:''}
+    </div>`;
   }
   const dot = S.driveError ? 'err' : S.driveSyncing ? 'busy' : 'ok';
   const label = S.driveError || (S.driveSyncing ? 'Saving…' : 'Synced');
