@@ -2370,7 +2370,7 @@ document.addEventListener('click',e=>{
   const el=e.target.closest('[data-a]');
   if(!el) return;
   switch(el.dataset.a){
-    case 'view': S.view=el.dataset.view; if(S.view==='calendar' && !S.selDate) S.selDate=todayStr(); render(); break;
+    case 'view': S.view=el.dataset.view; if(S.view==='calendar' && !S.selDate) S.selDate=todayStr(); history.pushState({view:S.view},'',`#${S.view}`); render(); break;
     case 'yprev': S.year--; render(); break;
     case 'ynext': S.year++; render(); break;
     case 'todayyear': S.year=todayObj().getFullYear(); render(); break;
@@ -2653,6 +2653,18 @@ function bindDrag(){
 
 DB.load();
 if(!DB.leadEmailTemplates.length) DB.leadEmailTemplates=normalizeLeadEmailTemplates([]);
+// Seed initial history entry and restore view from URL hash
+(()=>{
+  const hash=location.hash.slice(1);
+  const views=['dashboard','calendar','planning','schedule','customers','assets','leads'];
+  if(hash && views.includes(hash)) S.view=hash;
+  history.replaceState({view:S.view},'',`#${S.view}`);
+})();
+window.addEventListener('popstate',e=>{
+  if(e.state?.view) S.view=e.state.view;
+  render();
+  if(S.view==='leads') setTimeout(()=>{ bindLeadMapPanel(); initLeadsMap(); },40);
+});
 render();
 </script>
 </body>
