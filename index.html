@@ -849,12 +849,18 @@ const EMAIL_TEMPLATES=[
   {name:'Follow-Up',subject:'Following Up – Coates Industrial',body:`Dear [Name],\n\nI wanted to follow up on my previous message regarding Coates Industrial's engineering and heating services.\n\nI understand you're likely very busy, but I believe we could genuinely help your operation. We specialise in the kind of industrial plant your business relies on, and our team is experienced, responsive, and competitively priced.\n\nIf now isn't the right time, I'm happy to check back in a few weeks. Just let me know.\n\nMany thanks,\nCoates Industrial\nTel: 01234 567890`}
 ];
 const LEAD_REGIONS={
-  'north-east':{label:'North East', center:[54.9783,-1.6178], radius:50000, search:'North East England'},
-  'yorkshire':{label:'Yorkshire', center:[53.8008,-1.5491], radius:50000, search:'Yorkshire England'},
-  'north-west':{label:'North West', center:[53.4808,-2.2426], radius:50000, search:'North West England'},
-  'midlands':{label:'Midlands', center:[52.4862,-1.8904], radius:50000, search:'Midlands England'},
-  'south-east':{label:'South East', center:[51.5072,-0.1276], radius:50000, search:'South East England'},
-  'scotland':{label:'Scotland', center:[55.9533,-3.1883], radius:50000, search:'Scotland'}
+  'north-east':{label:'North East', center:[54.9783,-1.6178], radius:50000, search:'North East England',
+    centers:[[55.0,-1.60],[54.78,-1.57],[54.57,-1.23]]},
+  'yorkshire':{label:'Yorkshire', center:[53.8008,-1.5491], radius:50000, search:'Yorkshire England',
+    centers:[[53.80,-1.55],[53.38,-1.47],[53.74,-0.34],[53.96,-1.08]]},
+  'north-west':{label:'North West', center:[53.4808,-2.2426], radius:50000, search:'North West England',
+    centers:[[53.48,-2.24],[53.41,-2.99],[53.76,-2.70],[54.89,-2.94]]},
+  'midlands':{label:'Midlands', center:[52.4862,-1.8904], radius:50000, search:'Midlands England',
+    centers:[[52.49,-1.89],[52.95,-1.15],[52.47,-1.13],[52.90,-2.18]]},
+  'south-east':{label:'South East', center:[51.5072,-0.1276], radius:50000, search:'South East England',
+    centers:[[51.51,-0.13],[51.27,0.52],[50.82,-0.14],[51.88,-0.19]]},
+  'scotland':{label:'Scotland', center:[55.9533,-3.1883], radius:50000, search:'Scotland',
+    centers:[[55.86,-4.25],[55.95,-3.19],[57.15,-2.09],[56.46,-2.97]]}
 };
 let leadMap=null, leadMarkers=[];
 function leadSavedCount(){ return DB.leads.length; }
@@ -867,36 +873,28 @@ async function searchLeads(){
   if(!GOOGLE_PLACES_API_KEY){ S.leadSearchError='Add a Places API key to GOOGLE_PLACES_API_KEY to run live lead searches.'; S.leadResults=[]; render(); return; }
   const region=LEAD_REGIONS[S.leadsRegion] || LEAD_REGIONS['north-east'];
   S.leadSearching=true; S.leadSavedSearch=buildLeadTextQuery(); render();
+  const centers=region.centers||[region.center];
+  const query=buildLeadTextQuery();
+  const headers={'Content-Type':'application/json','X-Goog-Api-Key':GOOGLE_PLACES_API_KEY,'X-Goog-FieldMask':'places.id,places.displayName,places.formattedAddress,places.websiteUri,places.nationalPhoneNumber,places.location,places.businessStatus,places.types,places.googleMapsUri'};
   try{
-    const res=await fetch('https://places.googleapis.com/v1/places:searchText',{
-      method:'POST',
-      headers:{
-        'Content-Type':'application/json',
-        'X-Goog-Api-Key':GOOGLE_PLACES_API_KEY,
-        'X-Goog-FieldMask':'places.id,places.displayName,places.formattedAddress,places.websiteUri,places.nationalPhoneNumber,places.location,places.businessStatus,places.types,places.googleMapsUri'
-      },
-      body:JSON.stringify({
-        textQuery:buildLeadTextQuery(),
-        maxResultCount:15,
-        locationBias:{circle:{center:{latitude:region.center[0],longitude:region.center[1]},radius:region.radius}}
+    const responses=await Promise.all(centers.map(c=>
+      fetch('https://places.googleapis.com/v1/places:searchText',{
+        method:'POST', headers,
+        body:JSON.stringify({textQuery:query,maxResultCount:20,locationBias:{circle:{center:{latitude:c[0],longitude:c[1]},radius:region.radius}}})
+      }).then(async res=>{
+        if(!res.ok){ const e=await res.json().catch(()=>({})); throw new Error(`Search failed (${res.status}): ${e?.error?.message||'see console'}`); }
+        return res.json();
       })
-    });
-    if(!res.ok){ const errBody=await res.json().catch(()=>({})); console.error('Places API error',res.status,errBody); throw new Error(`Search failed (${res.status}): ${errBody?.error?.message||'see console'}`); }
-    const data=await res.json();
-    const places=(data.places||[]).map(p=>( {
-      placeId:p.id||'',
-      name:p.displayName?.text || 'Unnamed business',
-      address:p.formattedAddress || '',
-      website:p.websiteUri || '',
-      phone:p.nationalPhoneNumber || '',
-      lat:p.location?.latitude || null,
-      lng:p.location?.longitude || null,
-      status:p.businessStatus || '',
-      types:p.types || [],
-      mapsUri:p.googleMapsUri || '',
-      sector:S.leadsSector,
-      region:S.leadsRegion
-    }));
+    ));
+    const seen=new Set(); const places=[];
+    for(const data of responses){
+      for(const p of (data.places||[])){
+        const id=p.id||'';
+        if(id && seen.has(id)) continue;
+        if(id) seen.add(id);
+        places.push({placeId:id,name:p.displayName?.text||'Unnamed business',address:p.formattedAddress||'',website:p.websiteUri||'',phone:p.nationalPhoneNumber||'',lat:p.location?.latitude||null,lng:p.location?.longitude||null,status:p.businessStatus||'',types:p.types||[],mapsUri:p.googleMapsUri||'',sector:S.leadsSector,region:S.leadsRegion});
+      }
+    }
     S.leadResults=places;
     if(!places.length) S.leadSearchError='No businesses found for that sector and region.';
   }catch(err){
@@ -929,6 +927,7 @@ function renderSavedLead(l){
     <div style="display:flex;gap:8px;align-items:center">
       <span class="pill ${l.status==='customer'?'p-completed':'p-approved'}">${esc((l.status||'new').replace('-', ' '))}</span>
       <button class="btn-soft" data-a="leadtocustomer" data-lid="${l.id}">To customer</button>
+      <button class="btn-del" data-a="deletelead" data-lid="${l.id}">Delete</button>
     </div>
   </div>`;
 }
@@ -1667,6 +1666,7 @@ document.addEventListener('click',e=>{
       break;
     case 'savelead': saveLeadFromResult(Number(el.dataset.index)); break;
     case 'leadtocustomer': convertLeadToCustomer(el.dataset.lid); break;
+    case 'deletelead': if(confirm('Delete this saved lead?')){ DB.deleteLead(el.dataset.lid); render(); } break;
     case 'openleademail': S.leadEmailIdx=Number(el.dataset.index); S.leadEmailTemplate=0; render(); setTimeout(initLeadsMap,40); break;
     case 'closeleademail': S.leadEmailIdx=null; render(); setTimeout(initLeadsMap,40); break;
     case 'selectemailtemplate': S.leadEmailTemplate=Number(el.dataset.tidx); render(); setTimeout(initLeadsMap,40); break;
