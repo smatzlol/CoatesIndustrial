@@ -2359,12 +2359,18 @@ document.addEventListener('click',e=>{
       break;
     case 'savelead': saveLeadFromResult(Number(el.dataset.index)); break;
     case 'leadtocustomer': convertLeadToCustomer(el.dataset.lid); break;
-    case 'viewleadcustomer':
-      S.view='customers';
-      S.editCustId=el.dataset.cid;
-      S.custModal=true;
-      render();
-      break;
+    case 'viewleadcustomer': {
+  const customer = DB.getCustomer(el.dataset.cid);
+  if(!customer){
+    alert('Linked customer not found for this lead.');
+    break;
+  }
+  S.view = 'customers';
+  S.editCustId = customer.id;
+  S.custModal = true;
+  render();
+  break;
+}
     case 'deletelead': if(confirm('Delete this saved lead?')){ DB.deleteLead(el.dataset.lid); render(); } break;
     case 'openleademail':
       selectLeadForEmailStudio('result', Number(el.dataset.index));
