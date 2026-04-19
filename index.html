@@ -2188,31 +2188,7 @@ function saveJob(){
   if(S.editJobId) DB.updateJob(S.editJobId,data); else DB.addJob(data);
   S.jobModal=false; S.editJobId=null; S.selDate=date; S.year=Number(date.slice(0,4)); render();
 }
-async function saveCust(){
-  const name=document.getElementById('c-name')?.value.trim();
-  if(!name){ document.getElementById('c-name').focus(); return; }
-  const data={
-    name,
-    company:document.getElementById('c-company')?.value.trim()||'',
-    phone:document.getElementById('c-phone')?.value.trim()||'',
-    email:document.getElementById('c-email')?.value.trim()||'',
-    address:document.getElementById('c-address')?.value.trim()||'',
-    notes:document.getElementById('c-notes')?.value.trim()||'',
-    color:document.getElementById('c-color')?.value||nextCustColor()
-  };
-  let customerId=S.editCustId;
-  if(customerId) DB.updateCustomer(customerId,data); else customerId=DB.addCustomer(data).id;
 
-  try{
-    const customer=DB.getCustomer(customerId);
-    if(customer?.googleContactId) await updateGoogleContactFromCustomer(customerId);
-  }catch(e){
-    console.error(e);
-    alert('Customer saved in the app, but Google Contacts update failed. Sign out and back in if permissions changed, then try again.');
-  }
-
-  S.custModal=false; S.editCustId=null; render();
-}
 function saveAsset(){
   const name=document.getElementById('a-name')?.value.trim();
   if(!name){ document.getElementById('a-name').focus(); return; }
