@@ -236,37 +236,6 @@ textarea.fc{min-height:72px;resize:vertical}
 }
 </style>
 
-/* LEADS */
-.leads-layout{display:grid;grid-template-columns:360px 1fr;gap:12px;min-height:calc(100vh - 180px)}
-.leads-side{display:flex;flex-direction:column;gap:12px;min-width:0}
-.leads-panel .panel-b{padding:14px 16px}
-.lead-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.lead-chipbar{display:flex;flex-wrap:wrap;gap:8px}
-.lead-chip{padding:7px 10px;border:1px solid var(--bdr);background:var(--c2);color:var(--t1);border-radius:999px;cursor:pointer}
-.lead-chip.on,.lead-chip:hover{background:var(--c3);color:var(--t0);border-color:var(--c4)}
-.map-note{font-size:12px;color:var(--t1)}
-.leads-map-panel{background:var(--c1);border:1px solid var(--bdr);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column;min-height:640px}
-.leads-map-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:14px 16px;border-bottom:1px solid var(--bdr)}
-.leads-map{height:420px;min-height:420px;background:var(--c2);border-bottom:1px solid var(--bdr)}
-.lead-results{padding:14px 16px;overflow:auto;display:flex;flex-direction:column;gap:10px}
-.lead-result{display:flex;justify-content:space-between;gap:12px;padding:12px;border:1px solid var(--bdr);border-radius:10px;background:var(--c2)}
-.lead-main{min-width:0}
-.lead-title{font-weight:700}
-.lead-sub{margin-top:4px;font-size:12px;color:var(--t1);display:flex;flex-direction:column;gap:4px}
-.lead-badge{display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;background:var(--accdim);color:var(--accent);font-size:11px;font-weight:700;margin-top:8px}
-.lead-actions{display:flex;flex-direction:column;gap:8px;align-items:flex-end}
-.saved-lead .btn-soft,.saved-lead .btn-ghost{padding:6px 10px}
-@media(max-width:1100px){
-  .leads-layout{grid-template-columns:1fr}
-  .leads-map-panel{min-height:unset}
-}
-@media(max-width:640px){
-  .lead-grid{grid-template-columns:1fr}
-  .lead-result{flex-direction:column}
-  .lead-actions{align-items:stretch}
-  .leads-map{height:320px;min-height:320px}
-}
-
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 </head>
@@ -278,7 +247,7 @@ textarea.fc{min-height:72px;resize:vertical}
 const GOOGLE_CLIENT_ID='1036208514850-0a4fg11ck29iaqjiovmqjaemv4acbelq.apps.googleusercontent.com';
 const DRIVE_FILE='scheduler-data.json';
 const GOOGLE_SCOPES='https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/contacts';
-const GOOGLE_PLACES_API_KEY=''; // Optional: used for Leads search via Places API (New)
+const GOOGLE_PLACES_API_KEY='https://smatzlol.github.io/CoatesIndustrial/'; // Optional: used for Leads search via Places API (New)
 
 
 const CUST_COLORS=['#7161ef','#22d3a5','#38b2f8','#f5a623','#f472b6','#4ade80','#fb923c','#60a5fa','#e879f9','#facc15','#34d399','#f87171','#a78bfa','#2dd4bf','#fbbf24'];
