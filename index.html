@@ -4809,8 +4809,17 @@ document.addEventListener('click',e=>{
     case 'savelead': saveLeadFromResult(Number(el.dataset.index)); break;
     case 'leadtocustomer': convertLeadToCustomer(el.dataset.lid); break;
     case 'deletelead': if(confirm('Delete this saved lead?')){ DB.deleteLead(el.dataset.lid); render(); } break;
-    case 'openleademail': selectLeadForEmailStudio('result',Number(el.dataset.index)); break;
-    case 'opensavedemail': selectLeadForEmailStudio('saved',el.dataset.lid); break;
+case 'openleademail':
+  S.leadEmailIdx=Number(el.dataset.index);
+  S.leadEmailSavedId=null;
+  render();
+  break;
+
+case 'opensavedemail':
+  S.leadEmailSavedId=el.dataset.lid;
+  S.leadEmailIdx=null;
+  render();
+  break;
     case 'closeleademail': S.leadEmailIdx=null; S.leadEmailSavedId=null; render(); setTimeout(initLeadsMap,40); break;
     case 'sendgmailemail': {
       const r=S.leadEmailSavedId ? DB.leads.find(l=>l.id===S.leadEmailSavedId) : S.leadResults[S.leadEmailIdx];
