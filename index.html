@@ -779,7 +779,7 @@ const S={
   driveReady:false,driveSignedIn:false,driveSyncing:false,driveError:null,
   contactsModal:false,googleContacts:[],googleContactsLoaded:false,googleContactsLoading:false,googleContactsError:null,
   contactSearch:'',contactPickerMode:'import',contactPickerTargetCustomerId:null,
-  leadsSector:'powder coating',leadsRegion:'north-east',leadSearching:false,leadSearchError:null,leadResults:[],leadSavedSearch:'',leadMapReady:false,leadEmailIdx:null,leadEmailTemplate:0
+  leadsSector:'powder coating',leadsRegion:'north-east',leadSearching:false,leadSearchError:null,leadResults:[],leadSavedSearch:'',leadMapReady:false,leadEmailIdx:null,leadEmailTemplate:0,leadSort:'date',leadGroup:'none'
 };
 
 const I={
@@ -919,15 +919,19 @@ function convertLeadToCustomer(id){
   S.view='customers'; S.editCustId=customer.id; S.custModal=true; render();
 }
 function renderSavedLead(l){
-  return `<div class="row-item saved-lead">
-    <div class="row-main">
+  return `<div class="row-item" style="flex-direction:column;align-items:stretch;gap:8px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
       <div class="row-title">${esc(l.name)}</div>
-      <div class="row-sub"><span>${esc(LEAD_REGIONS[l.region]?.label || l.region || '')}</span>${l.website?`<span>${esc(l.website.replace(/^https?:\/\//,''))}</span>`:''}</div>
+      <span class="pill ${l.status==='customer'?'p-completed':'p-approved'}" style="flex-shrink:0">${esc((l.status||'new').replace('-',' '))}</span>
     </div>
-    <div style="display:flex;gap:8px;align-items:center">
-      <span class="pill ${l.status==='customer'?'p-completed':'p-approved'}">${esc((l.status||'new').replace('-', ' '))}</span>
-      <button class="btn-soft" data-a="leadtocustomer" data-lid="${l.id}">To customer</button>
-      <button class="btn-del" data-a="deletelead" data-lid="${l.id}">Delete</button>
+    <div class="row-sub" style="margin-top:0">
+      ${l.sector?`<span>${esc(l.sector)}</span>`:''}
+      <span>${esc(LEAD_REGIONS[l.region]?.label||l.region||'')}</span>
+      ${l.website?`<span>${esc(l.website.replace(/^https?:\/\//,''))}</span>`:''}
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <button class="btn-soft" style="padding:5px 10px;font-size:12px" data-a="leadtocustomer" data-lid="${l.id}">To customer</button>
+      <button class="btn-del" style="padding:5px 10px;font-size:12px" data-a="deletelead" data-lid="${l.id}">Delete</button>
     </div>
   </div>`;
 }
@@ -955,7 +959,42 @@ function renderLeads(){
       </div>
       <div class="panel leads-panel">
         <div class="panel-h"><h3>Saved leads</h3><span class="muted">${leadSavedCount()} saved</span></div>
-        <div class="panel-b mini-list">${saved.length?saved.map(renderSavedLead).join(''):`<div class="empty-state">No saved leads yet</div>`}</div>
+        <div class="panel-b" style="padding-bottom:8px">
+          <div style="display:flex;gap:6px;margin-bottom:10px">
+            <div class="fg" style="flex:1">
+              <label>Sort</label>
+              <select class="fc" id="leadSortSel" style="padding:6px 8px;font-size:12px">
+                <option value="date" ${S.leadSort==='date'?'selected':''}>Newest first</option>
+                <option value="name" ${S.leadSort==='name'?'selected':''}>Name A–Z</option>
+                <option value="sector" ${S.leadSort==='sector'?'selected':''}>Sector</option>
+                <option value="region" ${S.leadSort==='region'?'selected':''}>Region</option>
+              </select>
+            </div>
+            <div class="fg" style="flex:1">
+              <label>Group by</label>
+              <select class="fc" id="leadGroupSel" style="padding:6px 8px;font-size:12px">
+                <option value="none" ${S.leadGroup==='none'?'selected':''}>None</option>
+                <option value="sector" ${S.leadGroup==='sector'?'selected':''}>Sector</option>
+                <option value="region" ${S.leadGroup==='region'?'selected':''}>Region</option>
+              </select>
+            </div>
+          </div>
+          ${(()=>{
+            if(!saved.length) return `<div class="empty-state">No saved leads yet</div>`;
+            let list=[...saved];
+            const sortKey={date:(a,b)=>b.createdAt-a.createdAt,name:(a,b)=>a.name.localeCompare(b.name),sector:(a,b)=>(a.sector||'').localeCompare(b.sector||''),region:(a,b)=>(a.region||'').localeCompare(b.region||'')}[S.leadSort]||(()=>0);
+            list.sort(sortKey);
+            if(S.leadGroup==='none') return `<div class="mini-list">${list.map(renderSavedLead).join('')}</div>`;
+            const groupKey=S.leadGroup==='sector'?l=>l.sector||'Unknown':l=>LEAD_REGIONS[l.region]?.label||l.region||'Unknown';
+            const groups={};
+            list.forEach(l=>{ const k=groupKey(l); (groups[k]=groups[k]||[]).push(l); });
+            return Object.entries(groups).map(([k,items])=>`
+              <div style="margin-bottom:12px">
+                <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--t1);margin-bottom:6px;padding:0 2px">${esc(k)} <span style="color:var(--t2)">(${items.length})</span></div>
+                <div class="mini-list">${items.map(renderSavedLead).join('')}</div>
+              </div>`).join('');
+          })()}
+        </div>
       </div>
     </div>
     <div class="leads-map-panel">
@@ -991,7 +1030,7 @@ function renderLeadMarkers(){
       ${r.address?`<div style="font-size:12px;color:#666;margin-bottom:2px">${esc(r.address)}</div>`:''}
       ${r.phone?`<div style="font-size:12px;color:#666;margin-bottom:2px">${esc(r.phone)}</div>`:''}
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
-        <button onclick="handleLeadAction('savelead',${i})" style="padding:4px 10px;border:none;border-radius:6px;background:#2563eb;color:#fff;cursor:pointer;font-size:12px">Save lead</button>
+        ${DB.leads.some(l=>l.placeId&&l.placeId===r.placeId)?`<span style="padding:4px 10px;font-size:12px;color:#16a34a">✓ Saved</span>`:`<button onclick="handleLeadAction('savelead',${i})" style="padding:4px 10px;border:none;border-radius:6px;background:#2563eb;color:#fff;cursor:pointer;font-size:12px">Save lead</button>`}
         <button onclick="handleLeadAction('openleademail',${i})" style="padding:4px 10px;border:1px solid #d1d5db;border-radius:6px;background:#fff;cursor:pointer;font-size:12px">Email</button>
         ${r.website?`<a href="${esc(r.website)}" target="_blank" rel="noopener" style="padding:4px 10px;border:1px solid #d1d5db;border-radius:6px;background:#fff;color:#374151;text-decoration:none;font-size:12px">Website</a>`:''}
         ${r.mapsUri?`<a href="${esc(r.mapsUri)}" target="_blank" rel="noopener" style="padding:4px 10px;border:1px solid #d1d5db;border-radius:6px;background:#fff;color:#374151;text-decoration:none;font-size:12px">Maps</a>`:''}
@@ -1686,6 +1725,8 @@ document.addEventListener('change',e=>{
   }
   if(e.target.id==='schedMode'){ S.scheduleMode=e.target.value; render(); }
   if(e.target.id==='schedDate'){ S.scheduleDate=e.target.value; render(); }
+  if(e.target.id==='leadSortSel'){ S.leadSort=e.target.value; render(); setTimeout(initLeadsMap,40); }
+  if(e.target.id==='leadGroupSel'){ S.leadGroup=e.target.value; render(); setTimeout(initLeadsMap,40); }
 });
 document.addEventListener('input',e=>{
   if(e.target.dataset.a==='searchcust'){ S.search=e.target.value; clearTimeout(window._st); window._st=setTimeout(render,100); }
