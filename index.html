@@ -480,6 +480,7 @@ function normalizeGoogleContact(person){
   return {
     resourceName:person.resourceName,
     etag:person.etag||'',
+    metadataSources:Array.isArray(person.metadata?.sources)?person.metadata.sources:[],
     displayName:getPrimary(person.names,'displayName'),
     phone:getPrimary(person.phoneNumbers,'value'),
     email:getPrimary(person.emailAddresses,'value'),
@@ -487,6 +488,62 @@ function normalizeGoogleContact(person){
     title:getPrimary(person.organizations,'title'),
     address:getPrimary(person.addresses,'formattedValue') || ''
   };
+}
+function buildGooglePersonFromCustomer(customer,metaSources=[]){
+  const person={
+    names:[{displayName:customer.name||'',givenName:customer.name||''}],
+    organizations:customer.company?[{name:customer.company}]:[],
+    phoneNumbers:customer.phone?[{value:customer.phone}]:[],
+    emailAddresses:customer.email?[{value:customer.email}]:[],
+    addresses:customer.address?[{formattedValue:customer.address}]:[]
+  };
+  if(customer.notes) person.biographies=[{value:customer.notes}];
+  if(Array.isArray(metaSources) && metaSources.length) person.metadata={sources:metaSources};
+  return person;
+}
+async function getGoogleContactForUpdate(resourceName){
+  const token=gapi.client.getToken()?.access_token;
+  if(!token) throw new Error('Google sign-in token not found');
+  const url=new URL(`https://people.googleapis.com/v1/${resourceName}`);
+  url.searchParams.set('personFields','names,emailAddresses,phoneNumbers,organizations,addresses,biographies,metadata');
+  const resp=await fetch(url.toString(),{headers:{Authorization:`Bearer ${token}`}});
+  if(!resp.ok) throw new Error('Could not load latest Google contact');
+  return await resp.json();
+}
+async function updateGoogleContactFromCustomer(customerId){
+  const customer=DB.getCustomer(customerId);
+  if(!customer?.googleContactId || !contactApiEnabled() || !S.driveSignedIn) return true;
+  const token=gapi.client.getToken()?.access_token;
+  if(!token) throw new Error('Google sign-in token not found. Please sign in again.');
+
+  const latest=await getGoogleContactForUpdate(customer.googleContactId);
+  const payload=buildGooglePersonFromCustomer(customer, latest.metadata?.sources || []);
+  payload.resourceName=customer.googleContactId;
+  const url=new URL(`https://people.googleapis.com/v1/${customer.googleContactId}:updateContact`);
+  url.searchParams.set('updatePersonFields','names,emailAddresses,phoneNumbers,organizations,addresses,biographies');
+  url.searchParams.set('personFields','names,emailAddresses,phoneNumbers,organizations,addresses,biographies,metadata');
+
+  const resp=await fetch(url.toString(),{
+    method:'PATCH',
+    headers:{
+      'Authorization':`Bearer ${token}`,
+      'Content-Type':'application/json'
+    },
+    body:JSON.stringify(payload)
+  });
+  if(!resp.ok){
+    const txt=await resp.text();
+    console.error(txt);
+    throw new Error('Update contact failed');
+  }
+  const updated=normalizeGoogleContact(await resp.json());
+  DB.updateCustomer(customerId,{
+    googleContactId:updated.resourceName,
+    googleContactName:updated.displayName || customer.name,
+    googleContactSyncedAt:Date.now()
+  });
+  S.googleContactsLoaded=false;
+  return true;
 }
 async function fetchGoogleContacts(){
   const token=gapi.client.getToken()?.access_token;
@@ -1211,7 +1268,7 @@ function saveJob(){
   if(S.editJobId) DB.updateJob(S.editJobId,data); else DB.addJob(data);
   S.jobModal=false; S.editJobId=null; S.selDate=date; S.year=Number(date.slice(0,4)); render();
 }
-function saveCust(){
+async function saveCust(){
   const name=document.getElementById('c-name')?.value.trim();
   if(!name){ document.getElementById('c-name').focus(); return; }
   const data={
@@ -1223,7 +1280,17 @@ function saveCust(){
     notes:document.getElementById('c-notes')?.value.trim()||'',
     color:document.getElementById('c-color')?.value||nextCustColor()
   };
-  if(S.editCustId) DB.updateCustomer(S.editCustId,data); else DB.addCustomer(data);
+  let customerId=S.editCustId;
+  if(customerId) DB.updateCustomer(customerId,data); else customerId=DB.addCustomer(data).id;
+
+  try{
+    const customer=DB.getCustomer(customerId);
+    if(customer?.googleContactId) await updateGoogleContactFromCustomer(customerId);
+  }catch(e){
+    console.error(e);
+    alert('Customer saved in the app, but Google Contacts update failed. Sign out and back in if permissions changed, then try again.');
+  }
+
   S.custModal=false; S.editCustId=null; render();
 }
 function saveAsset(){
