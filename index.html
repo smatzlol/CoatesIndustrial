@@ -1120,15 +1120,24 @@ function convertLeadToCustomer(id){
   S.view='customers'; S.editCustId=customer.id; S.custModal=true; render();
 }
 function renderSavedLeadRow(l){
-  const isCustomer=l.status==='customer' && l.customerId;
+  const linkedCustomer = l.customerId ? DB.getCustomer(l.customerId) : null;
+  const isCustomer = l.status === 'customer' && !!linkedCustomer;
+
   return `<tr style="border-bottom:1px solid var(--bdr)">
-    <td style="padding:8px 10px;font-weight:600;font-size:13px;min-width:140px">${esc(l.name)}${l.website?`<div style="font-size:11px;color:var(--t2);font-weight:400;margin-top:2px">${esc(l.website.replace(/^https?:\/\//,''))}</div>`:''}</td>
-    <td style="padding:8px 10px;font-size:12px;color:var(--t1);white-space:nowrap">${esc(LEAD_REGIONS[l.region]?.label||l.region||'')}</td>
-    <td style="padding:8px 10px"><span class="pill ${l.status==='customer'?'p-completed':'p-approved'}">${esc((l.status||'new').replace('-',' '))}</span></td>
+    <td style="padding:8px 10px;font-weight:600;font-size:13px;min-width:140px">
+      ${esc(l.name)}
+      ${l.website ? `<div style="font-size:11px;color:var(--t2);font-weight:400;margin-top:2px">${esc(l.website.replace(/^https?:\/\//,''))}</div>` : ''}
+    </td>
+    <td style="padding:8px 10px;font-size:12px;color:var(--t1);white-space:nowrap">
+      ${esc(LEAD_REGIONS[l.region]?.label||l.region||'')}
+    </td>
+    <td style="padding:8px 10px">
+      <span class="pill ${l.status==='customer'?'p-completed':'p-approved'}">${esc((l.status||'new').replace('-',' '))}</span>
+    </td>
     <td style="padding:8px 10px">
       <div style="display:flex;gap:5px;flex-wrap:wrap">
         ${isCustomer
-          ? `<button class="btn-soft" style="padding:4px 8px;font-size:11px" data-a="viewleadcustomer" data-cid="${l.customerId}">View/Edit customer</button>`
+          ? `<button class="btn-soft" style="padding:4px 8px;font-size:11px" data-a="viewleadcustomer" data-cid="${linkedCustomer.id}">View/Edit customer</button>`
           : `<button class="btn-soft" style="padding:4px 8px;font-size:11px" data-a="leadtocustomer" data-lid="${l.id}">To customer</button>`}
         <button class="btn-soft" style="padding:4px 8px;font-size:11px" data-a="opensavedemail" data-lid="${l.id}">Email</button>
         ${l.website ? `<a class="btn-soft" style="padding:4px 8px;font-size:11px;text-decoration:none" href="${esc(l.website)}" target="_blank" rel="noopener">Website</a>` : ''}
@@ -2335,15 +2344,22 @@ document.addEventListener('click',e=>{
       break;
     case 'savelead': saveLeadFromResult(Number(el.dataset.index)); break;
     case 'leadtocustomer': convertLeadToCustomer(el.dataset.lid); break;
-    case 'viewleadcustomer': {
+   case 'viewleadcustomer': {
   const customer = DB.getCustomer(el.dataset.cid);
   if(!customer){
-    alert('Linked customer not found for this lead.');
+    const lead = DB.leads.find(l => l.customerId === el.dataset.cid);
+    if(lead){
+      DB.updateLead(lead.id, { status:'new', customerId:null });
+      alert('That linked customer no longer exists, so this lead has been switched back to a normal lead.');
+      render();
+    }else{
+      alert('Linked customer not found for this lead.');
+    }
     break;
   }
-  S.view = 'customers';
-  S.editCustId = customer.id;
-  S.custModal = true;
+  S.view='customers';
+  S.editCustId=customer.id;
+  S.custModal=true;
   render();
   break;
 }
