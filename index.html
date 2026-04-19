@@ -1027,7 +1027,14 @@ function selectedLeadForEmailStudio(){
   return null;
 }
 function resolveLeadEmail(lead){
-  return lead?.email || (lead?.customerId ? DB.getCustomer(lead.customerId)?.email : '') || '';
+  if(!lead) return '';
+  if(lead.email) return lead.email;
+  if(lead.customerId){
+    const email=DB.getCustomer(lead.customerId)?.email;
+    if(email) return email;
+  }
+  const byName=lead.name ? DB.customers.find(c=>c.name && c.name.toLowerCase()===lead.name.toLowerCase() && c.email) : null;
+  return byName?.email || '';
 }
 function timeAgo(ts){ const diff=Date.now()-ts; const d=Math.floor(diff/86400000); if(d===0) return 'today'; if(d===1) return 'yesterday'; return d+' days ago'; }
 function leadEmailMailtoFor(lead){
