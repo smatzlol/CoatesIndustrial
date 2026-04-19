@@ -388,10 +388,12 @@ function maybeGenerateRecurringFollowUp(job, prev){
 
 let _gapiReady=false,_gisReady=false,_tokenClient=null,_driveFileId=null,_saveTimer=null;
 function gapiLoaded(){
-  gapi.load('client', async ()=>{
-    await gapi.client.init({ discoveryDocs:['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'] });
-    _gapiReady=true; _driveCheckReady();
-  });
+ await gapi.client.init({
+  discoveryDocs: [
+    'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest',
+    'https://www.googleapis.com/discovery/v1/apis/people/v1/rest'
+  ]
+});
 }
 function gisLoaded(){
   if(GOOGLE_CLIENT_ID.startsWith('YOUR_CLIENT_ID')){ S.driveReady=false; return; }
