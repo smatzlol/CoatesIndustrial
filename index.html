@@ -248,10 +248,17 @@ textarea.fc{min-height:72px;resize:vertical}
 /* Leads tab */
 .leads-layout{display:grid;grid-template-columns:320px 1fr;gap:18px;align-items:start}
 .leads-side{display:flex;flex-direction:column;gap:14px}
-.leads-panel{min-width:0}
-.leads-map-panel{background:var(--c1);border:1px solid var(--bdr);border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
-.leads-map-head{display:flex;justify-content:space-between;align-items:flex-start;padding:12px 16px;border-bottom:1px solid var(--bdr);font-size:13px}
-.leads-map{height:540px;width:100%}
+.leads-panel,.leads-map-shell{min-width:0}
+.leads-map-wrap{position:relative;min-height:540px}
+.leads-map-panel{position:absolute;left:0;top:0;width:100%;height:540px;background:var(--c1);border:1px solid var(--bdr);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 18px 34px rgba(15,23,42,.08)}
+.leads-map-panel.dragging{box-shadow:0 24px 44px rgba(15,23,42,.16)}
+.leads-map-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:12px 16px;border-bottom:1px solid var(--bdr);font-size:13px;cursor:grab;user-select:none;touch-action:none}
+.leads-map-head:active{cursor:grabbing}
+.leads-map-toolbar{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.leads-map-hint{font-size:11px;color:var(--t2);white-space:nowrap}
+.leads-map{flex:1;min-height:280px;width:100%}
+.leads-map-resize{position:absolute;right:8px;bottom:8px;width:18px;height:18px;border:none;background:transparent;cursor:nwse-resize;color:var(--t2);padding:0;touch-action:none}
+.leads-map-resize::before{content:'';position:absolute;right:2px;bottom:2px;width:12px;height:12px;background:linear-gradient(135deg,transparent 0 44%,currentColor 44% 54%,transparent 54% 64%,currentColor 64% 74%,transparent 74% 84%,currentColor 84% 94%,transparent 94%);opacity:.9}
 .lead-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .lead-chipbar{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
 .lead-chip{padding:4px 10px;border-radius:20px;border:1px solid var(--bdr);background:var(--c2);color:var(--t1);font-size:12px;cursor:pointer}
@@ -266,7 +273,13 @@ textarea.fc{min-height:72px;resize:vertical}
 .lead-actions{display:flex;flex-direction:column;gap:6px;flex-shrink:0}
 .saved-lead{display:flex;justify-content:space-between;align-items:center;gap:10px}
 
-@media(max-width:1100px){.leads-layout{grid-template-columns:1fr}}
+@media(max-width:1100px){
+  .leads-layout{grid-template-columns:1fr}
+  .leads-map-wrap{min-height:0}
+  .leads-map-panel{position:relative!important;left:auto!important;top:auto!important;width:100%!important;height:460px!important}
+  .leads-map-head{cursor:default}
+  .leads-map-hint,.leads-map-resize{display:none}
+}
 @media(max-width:1200px){
   .month-grid{grid-template-columns:repeat(3,1fr)}
   .top-grid,.alert-strip{grid-template-columns:repeat(2,1fr)}
@@ -281,6 +294,7 @@ textarea.fc{min-height:72px;resize:vertical}
   .hdr{align-items:flex-start;flex-direction:column}
   .hdr-right{width:100%}
   .tabs{width:100%}
+  .leads-map-panel{height:360px!important}
   .month-grid,.top-grid,.alert-strip,.cgrid,.asset-grid,.board{grid-template-columns:1fr}
   .sidebar.open{position:fixed;right:0;top:0;height:100vh;z-index:20;background:var(--c1);width:min(92vw,330px)}
   .frow{grid-template-columns:1fr}
@@ -370,6 +384,38 @@ function nextCustColor(){
 function statusLabel(s){ return STATUS_META[s]?.label || s; }
 function statusClass(s){ return STATUS_META[s]?.cls || 'p-scheduled'; }
 function statusColor(s){ return STATUS_META[s]?.color || '#7161ef'; }
+
+const LEAD_MAP_LAYOUT_KEY='sch1_lead_map_layout';
+const DEFAULT_LEAD_MAP_LAYOUT={x:0,y:0,width:780,height:540};
+function clamp(n,min,max){ return Math.min(max,Math.max(min,n)); }
+function loadLeadMapLayout(){
+  try{
+    const raw=localStorage.getItem(LEAD_MAP_LAYOUT_KEY);
+    if(!raw) return {...DEFAULT_LEAD_MAP_LAYOUT};
+    const parsed=JSON.parse(raw);
+    return {
+      x:Number.isFinite(parsed?.x)?parsed.x:DEFAULT_LEAD_MAP_LAYOUT.x,
+      y:Number.isFinite(parsed?.y)?parsed.y:DEFAULT_LEAD_MAP_LAYOUT.y,
+      width:Number.isFinite(parsed?.width)?parsed.width:DEFAULT_LEAD_MAP_LAYOUT.width,
+      height:Number.isFinite(parsed?.height)?parsed.height:DEFAULT_LEAD_MAP_LAYOUT.height
+    };
+  }catch(e){
+    return {...DEFAULT_LEAD_MAP_LAYOUT};
+  }
+}
+function saveLeadMapLayout(){
+  try{ localStorage.setItem(LEAD_MAP_LAYOUT_KEY,JSON.stringify(S.leadMapLayout)); }catch(e){}
+}
+function leadMapUsesCompactLayout(){ return window.matchMedia('(max-width:1100px)').matches; }
+function normalizeLeadMapLayout(layout,wrapWidth){
+  const widthLimit=Math.max(320,Math.round(wrapWidth||DEFAULT_LEAD_MAP_LAYOUT.width));
+  const minWidth=Math.min(360,widthLimit);
+  const width=clamp(Math.round(layout?.width||DEFAULT_LEAD_MAP_LAYOUT.width),minWidth,widthLimit);
+  const height=clamp(Math.round(layout?.height||DEFAULT_LEAD_MAP_LAYOUT.height),320,960);
+  const x=clamp(Math.round(layout?.x||0),0,Math.max(0,widthLimit-width));
+  const y=clamp(Math.round(layout?.y||0),0,640);
+  return {x,y,width,height};
+}
 
 const DB={
   customers:[], jobs:[], assets:[], leads:[], alertsDismissed:{},
@@ -780,7 +826,7 @@ const S={
   driveReady:false,driveSignedIn:false,driveSyncing:false,driveError:null,
   contactsModal:false,googleContacts:[],googleContactsLoaded:false,googleContactsLoading:false,googleContactsError:null,
   contactSearch:'',contactPickerMode:'import',contactPickerTargetCustomerId:null,
-  leadsSector:'powder coating',leadsRegion:'north-east',leadSearching:false,leadSearchError:null,leadResults:[],leadSavedSearch:'',leadMapReady:false,leadEmailIdx:null,leadEmailSavedId:null,leadEmailTemplate:0,leadSort:'date',leadGroup:'none'
+  leadsSector:'powder coating',leadsRegion:'north-east',leadSearching:false,leadSearchError:null,leadResults:[],leadSavedSearch:'',leadMapReady:false,leadMapLayout:loadLeadMapLayout(),leadEmailIdx:null,leadEmailSavedId:null,leadEmailTemplate:0,leadSort:'date',leadGroup:'none'
 };
 
 const I={
@@ -864,6 +910,15 @@ const LEAD_REGIONS={
     centers:[[55.86,-4.25],[55.95,-3.19],[57.15,-2.09],[56.46,-2.97]]}
 };
 let leadMap=null, leadMarkers=[];
+let leadMapInvalidateQueued=false;
+function queueLeadMapInvalidate(){
+  if(!leadMap || leadMapInvalidateQueued) return;
+  leadMapInvalidateQueued=true;
+  requestAnimationFrame(()=>{
+    leadMapInvalidateQueued=false;
+    if(leadMap) leadMap.invalidateSize();
+  });
+}
 function leadSavedCount(){ return DB.leads.length; }
 function buildLeadTextQuery(){
   const region=LEAD_REGIONS[S.leadsRegion] || LEAD_REGIONS['north-east'];
@@ -980,9 +1035,20 @@ function renderLeads(){
           </div>
         </div>
       </div>
-      <div class="leads-map-panel">
-        <div class="leads-map-head"><div><strong>${esc(region.label)}</strong><div class="muted">${esc(statusMsg)}</div></div></div>
-        <div id="leadsMap" class="leads-map"></div>
+      <div class="leads-map-shell">
+        <div id="leadsMapWrap" class="leads-map-wrap">
+          <div id="leadsMapPanel" class="leads-map-panel">
+            <div class="leads-map-head" id="leadsMapHandle">
+              <div><strong>${esc(region.label)}</strong><div class="muted">${esc(statusMsg)}</div></div>
+              <div class="leads-map-toolbar">
+                <span class="leads-map-hint">Drag header or resize corner</span>
+                <button class="btn-soft" type="button" data-a="resetleadmap">Reset</button>
+              </div>
+            </div>
+            <div id="leadsMap" class="leads-map"></div>
+            <button class="leads-map-resize" id="leadsMapResize" type="button" aria-label="Resize map"></button>
+          </div>
+        </div>
       </div>
     </div>
     <div class="panel">
@@ -1001,6 +1067,78 @@ function renderLeads(){
     </div>
   </div>`;
 }
+let leadMapPointerState=null;
+function applyLeadMapLayout(save=false){
+  const wrap=document.getElementById('leadsMapWrap');
+  const panel=document.getElementById('leadsMapPanel');
+  if(!wrap || !panel) return;
+  if(leadMapUsesCompactLayout()){
+    wrap.style.height='';
+    panel.style.left='';
+    panel.style.top='';
+    panel.style.width='';
+    panel.style.height='';
+    panel.classList.remove('dragging');
+    if(save) saveLeadMapLayout();
+    queueLeadMapInvalidate();
+    return;
+  }
+  const next=normalizeLeadMapLayout(S.leadMapLayout,wrap.clientWidth);
+  S.leadMapLayout=next;
+  wrap.style.height=`${Math.max(DEFAULT_LEAD_MAP_LAYOUT.height,next.y+next.height)}px`;
+  panel.style.left=`${next.x}px`;
+  panel.style.top=`${next.y}px`;
+  panel.style.width=`${next.width}px`;
+  panel.style.height=`${next.height}px`;
+  if(save) saveLeadMapLayout();
+  queueLeadMapInvalidate();
+}
+function stopLeadMapPointer(){
+  if(!leadMapPointerState) return;
+  const panel=document.getElementById('leadsMapPanel');
+  if(panel) panel.classList.remove('dragging');
+  leadMapPointerState=null;
+  document.body.style.userSelect='';
+  saveLeadMapLayout();
+  queueLeadMapInvalidate();
+}
+function updateLeadMapPointer(ev){
+  if(!leadMapPointerState) return;
+  const dx=ev.clientX-leadMapPointerState.startX;
+  const dy=ev.clientY-leadMapPointerState.startY;
+  let next={...leadMapPointerState.startLayout};
+  if(leadMapPointerState.mode==='move'){
+    next.x=leadMapPointerState.startLayout.x+dx;
+    next.y=leadMapPointerState.startLayout.y+dy;
+  }else{
+    next.width=leadMapPointerState.startLayout.width+dx;
+    next.height=leadMapPointerState.startLayout.height+dy;
+  }
+  S.leadMapLayout=normalizeLeadMapLayout(next,leadMapPointerState.wrap.clientWidth);
+  applyLeadMapLayout(false);
+}
+function startLeadMapPointer(mode,ev){
+  if(leadMapUsesCompactLayout()) return;
+  if(typeof ev.button==='number' && ev.button!==0) return;
+  const wrap=document.getElementById('leadsMapWrap');
+  const panel=document.getElementById('leadsMapPanel');
+  if(!wrap || !panel) return;
+  ev.preventDefault();
+  leadMapPointerState={mode,startX:ev.clientX,startY:ev.clientY,startLayout:{...normalizeLeadMapLayout(S.leadMapLayout,wrap.clientWidth)},wrap};
+  panel.classList.add('dragging');
+  document.body.style.userSelect='none';
+}
+function bindLeadMapPanel(){
+  const handle=document.getElementById('leadsMapHandle');
+  const resize=document.getElementById('leadsMapResize');
+  if(!handle || !resize) return;
+  applyLeadMapLayout(false);
+  handle.onpointerdown=ev=>{
+    if(ev.target.closest('button')) return;
+    startLeadMapPointer('move',ev);
+  };
+  resize.onpointerdown=ev=>startLeadMapPointer('resize',ev);
+}
 function initLeadsMap(){
   const el=document.getElementById('leadsMap'); if(!el || typeof L==='undefined') return;
   const region=LEAD_REGIONS[S.leadsRegion] || LEAD_REGIONS['north-east'];
@@ -1012,7 +1150,7 @@ function initLeadsMap(){
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'&copy; OpenStreetMap contributors'}).addTo(leadMap);
     S.leadMapReady=true;
   }else{
-    setTimeout(()=>leadMap.invalidateSize(),50);
+    queueLeadMapInvalidate();
   }
   renderLeadMarkers();
 }
@@ -1082,7 +1220,7 @@ function render(){
     renderOverlay()+
     `<div class="print-sheet" id="printSheet"></div>`;
   bindDrag();
-  if(S.view==='leads') setTimeout(initLeadsMap,40);
+  if(S.view==='leads') setTimeout(()=>{ bindLeadMapPanel(); initLeadsMap(); },40);
 }
 function renderSetupBanner(){
   if(!GOOGLE_CLIENT_ID.startsWith('YOUR_CLIENT_ID')) return '';
@@ -1701,6 +1839,10 @@ document.addEventListener('click',e=>{
       S.leadsRegion=document.getElementById('leadRegion')?.value||S.leadsRegion;
       if(leadMap){ const r=LEAD_REGIONS[S.leadsRegion]||LEAD_REGIONS['north-east']; leadMap.setView(r.center,8); }
       break;
+    case 'resetleadmap':
+      S.leadMapLayout={...DEFAULT_LEAD_MAP_LAYOUT};
+      applyLeadMapLayout(true);
+      break;
     case 'savelead': saveLeadFromResult(Number(el.dataset.index)); break;
     case 'leadtocustomer': convertLeadToCustomer(el.dataset.lid); break;
     case 'deletelead': if(confirm('Delete this saved lead?')){ DB.deleteLead(el.dataset.lid); render(); } break;
@@ -1741,6 +1883,15 @@ document.addEventListener('keydown',e=>{
     if(S.custModal) saveCust();
     if(S.assetModal) saveAsset();
   }
+});
+window.addEventListener('pointermove',updateLeadMapPointer);
+window.addEventListener('pointerup',stopLeadMapPointer);
+window.addEventListener('pointercancel',stopLeadMapPointer);
+window.addEventListener('resize',()=>{
+  clearTimeout(window._leadMapLayoutResize);
+  window._leadMapLayoutResize=setTimeout(()=>{
+    if(S.view==='leads') applyLeadMapLayout(false);
+  },60);
 });
 
 function bindDrag(){
