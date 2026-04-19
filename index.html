@@ -249,6 +249,7 @@ textarea.fc{min-height:72px;resize:vertical}
 .leads-board{display:grid;grid-template-columns:320px minmax(0,1fr);gap:18px;align-items:start}
 .lead-section{min-width:0}
 .lead-section[data-lead-section="saved"]{grid-column:1/-1}
+.lead-map-standalone{grid-column:2;min-width:0}
 .lead-section.dragging{opacity:.58}
 .lead-section.drop-target{outline:2px dashed var(--accent);outline-offset:3px}
 .lead-section-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
@@ -290,6 +291,7 @@ textarea.fc{min-height:72px;resize:vertical}
 @media(max-width:1100px){
   .leads-board{grid-template-columns:1fr}
   .lead-section[data-lead-section="saved"]{grid-column:auto}
+  .lead-map-standalone{grid-column:auto}
   .leads-layout{grid-template-columns:1fr}
   .leads-map-wrap{min-height:0}
   .leads-map-panel{position:relative!important;left:auto!important;top:auto!important;width:100%!important;height:460px!important}
@@ -406,7 +408,7 @@ function statusColor(s){ return STATUS_META[s]?.color || '#7161ef'; }
 const LEAD_MAP_LAYOUT_KEY='sch1_lead_map_layout';
 const LEAD_SECTION_LAYOUT_KEY='sch1_lead_sections';
 const DEFAULT_LEAD_MAP_LAYOUT={x:0,y:0,width:780,height:540};
-const DEFAULT_LEAD_SECTION_LAYOUT={order:['finder','map','saved'],collapsed:{finder:false,map:false,saved:false}};
+const DEFAULT_LEAD_SECTION_LAYOUT={order:['finder','saved'],collapsed:{finder:false,saved:false}};
 function clamp(n,min,max){ return Math.min(max,Math.max(min,n)); }
 function loadLeadMapLayout(){
   try{
@@ -1110,11 +1112,15 @@ function renderLeadsBoard(){
     </select>`;
   const sections={
     finder:renderLeadSectionCard('finder','Lead finder','Search UK sectors and save prospects',finderBody),
-    map:renderLeadSectionCard('map','Lead map','Reorder or collapse this section; the map itself still moves and resizes',mapBody),
     saved:renderLeadSectionCard('saved','Saved leads','Review and convert prospects',`<div>${savedTable}</div>`,savedActions)
   };
   const order=S.leadSectionLayout?.order || DEFAULT_LEAD_SECTION_LAYOUT.order;
-  return `<div class="leads-board">${order.map(id=>sections[id]).join('')}</div>`;
+  const orderedSections=order.map(id=>sections[id]).filter(Boolean);
+  return `<div class="leads-board">
+    ${orderedSections[0]||''}
+    <div class="lead-map-standalone">${mapBody}</div>
+    ${orderedSections.slice(1).join('')}
+  </div>`;
 }
 function renderLeads(){
   return renderLeadsBoard();
