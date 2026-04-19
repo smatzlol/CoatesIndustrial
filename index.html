@@ -241,9 +241,9 @@ textarea.fc{min-height:72px;resize:vertical}
 <body>
 <div id="app"></div>
 <script>
-const GOOGLE_CLIENT_ID='1036208514850-0a4fg11ck29iaqjiovmqjaemv4acbelq.apps.googleusercontent.com';
+const GOOGLE_CLIENT_ID='YOUR_CLIENT_ID_HERE.apps.googleusercontent.com';
 const DRIVE_FILE='scheduler-data.json';
-const GOOGLE_SCOPES='https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/contacts.readonly';
+const GOOGLE_SCOPES='https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/contacts';
 
 const CUST_COLORS=['#7161ef','#22d3a5','#38b2f8','#f5a623','#f472b6','#4ade80','#fb923c','#60a5fa','#e879f9','#facc15','#34d399','#f87171','#a78bfa','#2dd4bf','#fbbf24'];
 const STATUS_META={
@@ -389,7 +389,7 @@ function maybeGenerateRecurringFollowUp(job, prev){
 let _gapiReady=false,_gisReady=false,_tokenClient=null,_driveFileId=null,_saveTimer=null;
 function gapiLoaded(){
   gapi.load('client', async ()=>{
-    await gapi.client.init({ discoveryDocs:['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'] });
+    await gapi.client.init({ discoveryDocs:['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest','https://www.googleapis.com/discovery/v1/apis/people/v1/rest'] });
     _gapiReady=true; _driveCheckReady();
   });
 }
@@ -574,6 +574,53 @@ async function refreshCustomerFromGoogle(customerId){
     googleContactSyncedAt:Date.now()
   });
   S.editCustId=customerId; S.custModal=true; render();
+}
+async function createGoogleContactFromCustomer(customerId){
+  const customer=DB.getCustomer(customerId);
+  if(!customer){ return; }
+  if(customer.googleContactId){ alert('This customer is already linked to a Google contact.'); return; }
+  if(!contactApiEnabled()) { alert('Add your Google Client ID first to use Google Contacts.'); return; }
+  if(!S.driveSignedIn){ driveSignIn(); return; }
+  const token=gapi.client.getToken()?.access_token;
+  if(!token){ alert('Google sign-in token not found. Please sign in again.'); return; }
+
+  const payload={};
+  if(customer.name) payload.names=[{displayName:customer.name, givenName:customer.name}];
+  if(customer.company) payload.organizations=[{name:customer.company}];
+  if(customer.phone) payload.phoneNumbers=[{value:customer.phone}];
+  if(customer.email) payload.emailAddresses=[{value:customer.email}];
+  if(customer.address) payload.addresses=[{formattedValue:customer.address}];
+  if(customer.notes) payload.biographies=[{value:customer.notes}];
+
+  try{
+    const url='https://people.googleapis.com/v1/people:createContact?personFields=names,emailAddresses,phoneNumbers,organizations,addresses';
+    const resp=await fetch(url,{
+      method:'POST',
+      headers:{
+        'Authorization':`Bearer ${token}`,
+        'Content-Type':'application/json'
+      },
+      body:JSON.stringify(payload)
+    });
+    if(!resp.ok){
+      const txt=await resp.text();
+      console.error(txt);
+      throw new Error('Create contact failed');
+    }
+    const created=normalizeGoogleContact(await resp.json());
+    DB.updateCustomer(customerId,{
+      googleContactId:created.resourceName,
+      googleContactName:created.displayName || customer.name,
+      googleContactSyncedAt:Date.now()
+    });
+    S.googleContactsLoaded=false;
+    await ensureGoogleContactsLoaded(true);
+    S.editCustId=customerId; S.custModal=true; render();
+    alert('Google contact created');
+  }catch(e){
+    console.error(e);
+    alert('Failed to create Google contact. Check your OAuth scope is set to https://www.googleapis.com/auth/contacts and sign in again.');
+  }
 }
 function renderContactsModal(){
   const q=S.contactSearch.trim().toLowerCase();
@@ -1080,6 +1127,7 @@ function renderCustomerModal(){
       <div class="mft">
         ${c?`<button class="btn-del" data-a="delcust">Delete</button>`:''}
         <button class="btn-soft" data-a="${c?'linkgoogle':'importgoogle'}">${c?'Link Google Contact':'Import Google Contact'}</button>
+        ${c && !c.googleContactId?`<button class="btn-soft" data-a="creategoogle">Create Google Contact</button>`:''}
         ${c?.googleContactId?`<button class="btn-soft" data-a="refreshgoogle">Refresh from Google</button>`:''}
         <div class="sp"></div>
         <button class="btn-ghost" data-a="closemod">Cancel</button>
@@ -1242,6 +1290,7 @@ document.addEventListener('click',e=>{
     case 'importgoogle': openContactPicker('import'); break;
     case 'linkgoogle': openContactPicker('link', S.editCustId); break;
     case 'refreshgoogle': refreshCustomerFromGoogle(S.editCustId); break;
+    case 'creategoogle': createGoogleContactFromCustomer(S.editCustId); break;
     case 'reloadcontacts': ensureGoogleContactsLoaded(true); break;
     case 'pickcontact':
       if(S.contactPickerMode==='link') linkGoogleContactToCustomer(S.contactPickerTargetCustomerId, el.dataset.resource);
