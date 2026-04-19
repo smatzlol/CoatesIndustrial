@@ -890,7 +890,7 @@ const S={
   driveReady:false,driveSignedIn:false,driveSyncing:false,driveError:null,
   contactsModal:false,googleContacts:[],googleContactsLoaded:false,googleContactsLoading:false,googleContactsError:null,
   contactSearch:'',contactPickerMode:'import',contactPickerTargetCustomerId:null,
-  leadsSector:'powder coating',leadsRegion:'north-east',leadSearching:false,leadSearchError:null,leadResults:[],leadSavedSearch:'',leadMapReady:false,leadMapLayout:loadLeadMapLayout(),leadSectionLayout:loadLeadSectionLayout(),leadEmailIdx:null,leadEmailSavedId:null,leadEmailTemplate:0,leadSort:'date',leadGroup:'none'
+  leadsSector:'powder coating',leadsRegion:'north-east',leadSearching:false,leadSearchError:null,leadResults:[],leadSavedSearch:'',leadMapReady:false,leadMapLayout:loadLeadMapLayout(),leadSectionLayout:loadLeadSectionLayout(),leadEmailIdx:null,leadEmailSavedId:null,leadEmailTemplate:0,leadEmailTargetType:null,leadEmailTargetId:null,leadSort:'date',leadGroup:'none'
 };
 
 const I={
@@ -1004,6 +1004,38 @@ function personalizeLeadEmail(text,lead){
 }
 function sampleLeadForEmailPreview(){
   return DB.leads[0] || S.leadResults[0] || {name:'Acme Engineering',region:S.leadsRegion,sector:S.leadsSector,website:'https://example.co.uk'};
+}
+function selectedLeadForEmailStudio(){
+  if(S.leadEmailTargetType==='saved'){
+    return DB.leads.find(l=>l.id===S.leadEmailTargetId) || null;
+  }
+  if(S.leadEmailTargetType==='result'){
+    const idx=Number(S.leadEmailTargetId);
+    return Number.isInteger(idx) ? S.leadResults[idx] || null : null;
+  }
+  return null;
+}
+function leadEmailMailtoFor(lead){
+  const tpl=activeLeadEmailTemplate();
+  const subject=personalizeLeadEmail(tpl?.subject||'',lead);
+  const body=personalizeLeadEmail(tpl?.body||'',lead);
+  const email=lead?.email || '';
+  return email
+    ? `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+    : `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+function focusLeadEmailStudio(){
+  setTimeout(()=>{
+    document.getElementById('leadEmailStudio')?.scrollIntoView({behavior:'smooth',block:'start'});
+  },40);
+}
+function selectLeadForEmailStudio(type,id){
+  S.leadEmailTargetType=type;
+  S.leadEmailTargetId=id;
+  S.leadEmailIdx=null;
+  S.leadEmailSavedId=null;
+  render();
+  focusLeadEmailStudio();
 }
 const LEAD_REGIONS={
   'north-east':{label:'North East', center:[54.9783,-1.6178], radius:50000, search:'North East England',
@@ -1125,10 +1157,31 @@ function renderLeadEmailStudio(){
   const templates=leadEmailTemplates();
   const activeIndex=activeLeadEmailTemplateIndex();
   const active=templates[activeIndex];
-  const previewLead=sampleLeadForEmailPreview();
+  const targetLead=selectedLeadForEmailStudio();
+  const previewLead=targetLead || sampleLeadForEmailPreview();
   const previewSubject=personalizeLeadEmail(active?.subject||'',previewLead);
   const previewBody=personalizeLeadEmail(active?.body||'',previewLead);
-  return `<div class="panel-b">
+  const mailto=leadEmailMailtoFor(previewLead);
+  return `<div class="panel-b" id="leadEmailStudio">
+    <div class="section" style="margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+        <div>
+          <div style="font-weight:800">${targetLead?'Composing for selected lead':'Composer preview'}</div>
+          <div class="muted">${esc(previewLead.name)} | ${esc(leadRegionLabel(previewLead.region)||'Preview lead')}</div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <span class="tag">${esc(previewLead.sector||S.leadsSector)}</span>
+          ${targetLead?`<button class="btn-ghost" type="button" data-a="clearleademailtarget">Clear lead</button>`:''}
+          <a class="btn-primary" href="${mailto}" style="text-decoration:none">Open in email client</a>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-top:12px">
+        <div class="line"><strong>Business</strong><br>${esc(previewLead.name||'No lead selected')}</div>
+        <div class="line"><strong>Phone</strong><br>${esc(previewLead.phone||'No phone')}</div>
+        <div class="line"><strong>Website</strong><br>${previewLead.website?`<a href="${esc(previewLead.website)}" target="_blank" rel="noopener">${esc(previewLead.website.replace(/^https?:\/\//,''))}</a>`:'No website'}</div>
+        <div class="line"><strong>Address</strong><br>${esc(previewLead.address||'No address')}</div>
+      </div>
+    </div>
     <div class="split">
       <div class="section stack">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
@@ -1162,8 +1215,8 @@ function renderLeadEmailStudio(){
         <div class="section" style="padding:10px 12px">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
             <div>
-              <div style="font-weight:800">Live preview</div>
-              <div class="muted">${esc(previewLead.name)} | ${esc(leadRegionLabel(previewLead.region)||'Preview lead')}</div>
+              <div style="font-weight:800">Prepared email</div>
+              <div class="muted">${targetLead?'Personalised from the selected lead':'Using a sample lead until you pick one'}</div>
             </div>
             <span class="tag">${esc(previewLead.sector||S.leadsSector)}</span>
           </div>
@@ -1492,7 +1545,7 @@ function renderLeadMarkers(){
 
 function handleLeadAction(action,idx){
   if(action==='savelead'){ saveLeadFromResult(idx); }
-  else if(action==='openleademail'){ S.leadEmailIdx=idx; render(); setTimeout(initLeadsMap,40); }
+  else if(action==='openleademail'){ selectLeadForEmailStudio('result',idx); }
 }
 function renderLeadEmailModal(){
   const r=S.leadEmailSavedId ? DB.leads.find(l=>l.id===S.leadEmailSavedId) : S.leadResults[S.leadEmailIdx];
@@ -2241,11 +2294,16 @@ document.addEventListener('click',e=>{
     case 'insertemailtoken':
       insertLeadEmailToken(el.dataset.token||'');
       break;
+    case 'clearleademailtarget':
+      S.leadEmailTargetType=null;
+      S.leadEmailTargetId=null;
+      render();
+      break;
     case 'savelead': saveLeadFromResult(Number(el.dataset.index)); break;
     case 'leadtocustomer': convertLeadToCustomer(el.dataset.lid); break;
     case 'deletelead': if(confirm('Delete this saved lead?')){ DB.deleteLead(el.dataset.lid); render(); } break;
-    case 'openleademail': S.leadEmailIdx=Number(el.dataset.index); S.leadEmailSavedId=null; render(); setTimeout(initLeadsMap,40); break;
-    case 'opensavedemail': S.leadEmailSavedId=el.dataset.lid; S.leadEmailIdx=null; render(); setTimeout(initLeadsMap,40); break;
+    case 'openleademail': selectLeadForEmailStudio('result',Number(el.dataset.index)); break;
+    case 'opensavedemail': selectLeadForEmailStudio('saved',el.dataset.lid); break;
     case 'closeleademail': S.leadEmailIdx=null; S.leadEmailSavedId=null; render(); setTimeout(initLeadsMap,40); break;
     case 'selectemailtemplate': S.leadEmailTemplate=Number(el.dataset.tidx); render(); setTimeout(initLeadsMap,40); break;
   }
