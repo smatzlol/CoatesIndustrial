@@ -246,6 +246,20 @@ textarea.fc{min-height:72px;resize:vertical}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.32}}
 
 /* Leads tab */
+.leads-board{display:grid;grid-template-columns:320px minmax(0,1fr);gap:18px;align-items:start}
+.lead-section{min-width:0}
+.lead-section[data-lead-section="saved"]{grid-column:1/-1}
+.lead-section.dragging{opacity:.58}
+.lead-section.drop-target{outline:2px dashed var(--accent);outline-offset:3px}
+.lead-section-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.lead-section-heading{display:flex;align-items:flex-start;gap:10px;min-width:0}
+.lead-section-title{display:flex;flex-direction:column;gap:2px;min-width:0}
+.lead-section-title .muted{font-size:12px}
+.lead-section-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.lead-section-handle{display:inline-flex;align-items:center;justify-content:center;min-width:54px;padding:6px 10px;border:1px dashed var(--bdr);border-radius:8px;background:var(--c2);color:var(--t1);font-size:12px;font-weight:700;cursor:grab;user-select:none}
+.lead-section-handle:active{cursor:grabbing}
+.lead-section.is-collapsed .panel-h{border-bottom:none}
+.lead-section-body{min-width:0}
 .leads-layout{display:grid;grid-template-columns:320px 1fr;gap:18px;align-items:start}
 .leads-side{display:flex;flex-direction:column;gap:14px}
 .leads-panel,.leads-map-shell{min-width:0}
@@ -274,6 +288,8 @@ textarea.fc{min-height:72px;resize:vertical}
 .saved-lead{display:flex;justify-content:space-between;align-items:center;gap:10px}
 
 @media(max-width:1100px){
+  .leads-board{grid-template-columns:1fr}
+  .lead-section[data-lead-section="saved"]{grid-column:auto}
   .leads-layout{grid-template-columns:1fr}
   .leads-map-wrap{min-height:0}
   .leads-map-panel{position:relative!important;left:auto!important;top:auto!important;width:100%!important;height:460px!important}
@@ -294,6 +310,8 @@ textarea.fc{min-height:72px;resize:vertical}
   .hdr{align-items:flex-start;flex-direction:column}
   .hdr-right{width:100%}
   .tabs{width:100%}
+  .lead-section-head,.lead-section-heading,.lead-section-actions{width:100%}
+  .lead-section-head,.lead-section-actions{flex-direction:column;align-items:flex-start}
   .leads-map-panel{height:360px!important}
   .month-grid,.top-grid,.alert-strip,.cgrid,.asset-grid,.board{grid-template-columns:1fr}
   .sidebar.open{position:fixed;right:0;top:0;height:100vh;z-index:20;background:var(--c1);width:min(92vw,330px)}
@@ -386,7 +404,9 @@ function statusClass(s){ return STATUS_META[s]?.cls || 'p-scheduled'; }
 function statusColor(s){ return STATUS_META[s]?.color || '#7161ef'; }
 
 const LEAD_MAP_LAYOUT_KEY='sch1_lead_map_layout';
+const LEAD_SECTION_LAYOUT_KEY='sch1_lead_sections';
 const DEFAULT_LEAD_MAP_LAYOUT={x:0,y:0,width:780,height:540};
+const DEFAULT_LEAD_SECTION_LAYOUT={order:['finder','map','saved'],collapsed:{finder:false,map:false,saved:false}};
 function clamp(n,min,max){ return Math.min(max,Math.max(min,n)); }
 function loadLeadMapLayout(){
   try{
@@ -405,6 +425,26 @@ function loadLeadMapLayout(){
 }
 function saveLeadMapLayout(){
   try{ localStorage.setItem(LEAD_MAP_LAYOUT_KEY,JSON.stringify(S.leadMapLayout)); }catch(e){}
+}
+function defaultLeadSectionLayout(){
+  return {order:[...DEFAULT_LEAD_SECTION_LAYOUT.order],collapsed:{...DEFAULT_LEAD_SECTION_LAYOUT.collapsed}};
+}
+function loadLeadSectionLayout(){
+  try{
+    const raw=localStorage.getItem(LEAD_SECTION_LAYOUT_KEY);
+    if(!raw) return defaultLeadSectionLayout();
+    const parsed=JSON.parse(raw)||{};
+    const order=(Array.isArray(parsed.order)?parsed.order:[]).filter(id=>DEFAULT_LEAD_SECTION_LAYOUT.order.includes(id));
+    DEFAULT_LEAD_SECTION_LAYOUT.order.forEach(id=>{ if(!order.includes(id)) order.push(id); });
+    const collapsed={...DEFAULT_LEAD_SECTION_LAYOUT.collapsed};
+    Object.keys(collapsed).forEach(id=>{ collapsed[id]=!!parsed?.collapsed?.[id]; });
+    return {order,collapsed};
+  }catch(e){
+    return defaultLeadSectionLayout();
+  }
+}
+function saveLeadSectionLayout(){
+  try{ localStorage.setItem(LEAD_SECTION_LAYOUT_KEY,JSON.stringify(S.leadSectionLayout)); }catch(e){}
 }
 function leadMapUsesCompactLayout(){ return window.matchMedia('(max-width:1100px)').matches; }
 function normalizeLeadMapLayout(layout,wrapWidth){
@@ -826,7 +866,7 @@ const S={
   driveReady:false,driveSignedIn:false,driveSyncing:false,driveError:null,
   contactsModal:false,googleContacts:[],googleContactsLoaded:false,googleContactsLoading:false,googleContactsError:null,
   contactSearch:'',contactPickerMode:'import',contactPickerTargetCustomerId:null,
-  leadsSector:'powder coating',leadsRegion:'north-east',leadSearching:false,leadSearchError:null,leadResults:[],leadSavedSearch:'',leadMapReady:false,leadMapLayout:loadLeadMapLayout(),leadEmailIdx:null,leadEmailSavedId:null,leadEmailTemplate:0,leadSort:'date',leadGroup:'none'
+  leadsSector:'powder coating',leadsRegion:'north-east',leadSearching:false,leadSearchError:null,leadResults:[],leadSavedSearch:'',leadMapReady:false,leadMapLayout:loadLeadMapLayout(),leadSectionLayout:loadLeadSectionLayout(),leadEmailIdx:null,leadEmailSavedId:null,leadEmailTemplate:0,leadSort:'date',leadGroup:'none'
 };
 
 const I={
@@ -988,7 +1028,96 @@ function renderSavedLeadRow(l){
     </td>
   </tr>`;
 }
+function renderLeadSectionCard(id,title,subtitle,body,actions=''){
+  const collapsed=!!S.leadSectionLayout?.collapsed?.[id];
+  return `<section class="lead-section panel${collapsed?' is-collapsed':''}" data-lead-section="${id}">
+    <div class="panel-h lead-section-head">
+      <div class="lead-section-heading">
+        <div class="lead-section-handle" draggable="true" data-lead-section-handle="${id}" title="Drag to reorder">Move</div>
+        <div class="lead-section-title">
+          <h3>${esc(title)}</h3>
+          ${subtitle?`<span class="muted">${esc(subtitle)}</span>`:''}
+        </div>
+      </div>
+      <div class="lead-section-actions">
+        ${actions}
+        <button class="btn-soft" type="button" data-a="toggleleadsection" data-section="${id}">${collapsed?'Expand':'Collapse'}</button>
+      </div>
+    </div>
+    ${collapsed?'':`<div class="lead-section-body">${body}</div>`}
+  </section>`;
+}
+function renderLeadsBoard(){
+  const region=LEAD_REGIONS[S.leadsRegion] || LEAD_REGIONS['north-east'];
+  const statusMsg=S.leadSearching?'Searching...':S.leadResults.length?`${S.leadResults.length} result${S.leadResults.length!==1?'s':''} - click a pin to view details`:'Run a search to find businesses on the map';
+  const savedTable=(()=>{
+    if(!DB.leads.length) return `<div class="empty-state" style="padding:32px 16px">No saved leads yet</div>`;
+    let list=[...DB.leads];
+    const sortKey={date:(a,b)=>b.createdAt-a.createdAt,name:(a,b)=>a.name.localeCompare(b.name),region:(a,b)=>(a.region||'').localeCompare(b.region||'')}[S.leadSort]||(()=>0);
+    list.sort(sortKey);
+    const groups={};
+    list.forEach(l=>{ const k=l.sector||'Other'; (groups[k]=groups[k]||[]).push(l); });
+    return Object.entries(groups).map(([sector,items])=>`
+      <div style="border-bottom:1px solid var(--bdr)">
+        <div style="display:flex;align-items:center;gap:8px;padding:9px 14px 7px;background:var(--c2)">
+          <span style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--t1)">${esc(sector)}</span>
+          <span style="font-size:11px;color:var(--t2)">${items.length} lead${items.length!==1?'s':''}</span>
+        </div>
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr style="background:var(--c1)">
+            <th style="padding:6px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--t2);border-bottom:1px solid var(--bdr)">Name</th>
+            <th style="padding:6px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--t2);border-bottom:1px solid var(--bdr)">Region</th>
+            <th style="padding:6px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--t2);border-bottom:1px solid var(--bdr)">Status</th>
+            <th style="padding:6px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--t2);border-bottom:1px solid var(--bdr)">Actions</th>
+          </tr></thead>
+          <tbody>${items.map(renderSavedLeadRow).join('')}</tbody>
+        </table>
+      </div>`).join('');
+  })();
+  const finderBody=`<div class="panel-b">
+    <div class="lead-grid">
+      <div class="fg"><label>Sector</label><select class="fc" id="leadSector">${LEAD_SECTORS.map(s=>`<option value="${esc(s)}" ${S.leadsSector===s?'selected':''}>${esc(s.replace(/\w/g,m=>m.toUpperCase()))}</option>`).join('')}</select></div>
+      <div class="fg"><label>Region</label><select class="fc" id="leadRegion">${Object.entries(LEAD_REGIONS).map(([k,v])=>`<option value="${k}" ${S.leadsRegion===k?'selected':''}>${esc(v.label)}</option>`).join('')}</select></div>
+    </div>
+    <div class="fg" style="margin-top:10px"><label>Quick sectors</label><div class="lead-chipbar">${LEAD_SECTORS.slice(0,6).map(s=>`<button class="lead-chip ${S.leadsSector===s?'on':''}" data-a="leadchip" data-sector="${esc(s)}">${esc(s)}</button>`).join('')}</div></div>
+    <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+      <button class="btn-primary" data-a="searchleads">${I.search} Search leads</button>
+      <button class="btn-ghost" data-a="fitleadregion">${I.map} Centre map</button>
+    </div>
+    <div class="map-note" style="margin-top:10px">Query: <strong>${esc(buildLeadTextQuery())}</strong></div>
+    ${S.leadSearchError?`<div class="empty-state" style="padding:16px 0 0;text-align:left">${esc(S.leadSearchError)}</div>`:''}
+  </div>`;
+  const mapBody=`<div class="leads-map-shell">
+    <div id="leadsMapWrap" class="leads-map-wrap">
+      <div id="leadsMapPanel" class="leads-map-panel">
+        <div class="leads-map-head" id="leadsMapHandle">
+          <div><strong>${esc(region.label)}</strong><div class="muted">${esc(statusMsg)}</div></div>
+          <div class="leads-map-toolbar">
+            <span class="leads-map-hint">Drag header or resize corner</span>
+            <button class="btn-soft" type="button" data-a="resetleadmap">Reset</button>
+          </div>
+        </div>
+        <div id="leadsMap" class="leads-map"></div>
+        <button class="leads-map-resize" id="leadsMapResize" type="button" aria-label="Resize map"></button>
+      </div>
+    </div>
+  </div>`;
+  const savedActions=`<span class="muted">${leadSavedCount()} saved</span>
+    <select class="fc" id="leadSortSel" style="padding:4px 8px;font-size:12px;width:auto">
+      <option value="date" ${S.leadSort==='date'?'selected':''}>Newest first</option>
+      <option value="name" ${S.leadSort==='name'?'selected':''}>Name A-Z</option>
+      <option value="region" ${S.leadSort==='region'?'selected':''}>Region</option>
+    </select>`;
+  const sections={
+    finder:renderLeadSectionCard('finder','Lead finder','Search UK sectors and save prospects',finderBody),
+    map:renderLeadSectionCard('map','Lead map','Reorder or collapse this section; the map itself still moves and resizes',mapBody),
+    saved:renderLeadSectionCard('saved','Saved leads','Review and convert prospects',`<div>${savedTable}</div>`,savedActions)
+  };
+  const order=S.leadSectionLayout?.order || DEFAULT_LEAD_SECTION_LAYOUT.order;
+  return `<div class="leads-board">${order.map(id=>sections[id]).join('')}</div>`;
+}
 function renderLeads(){
+  return renderLeadsBoard();
   const region=LEAD_REGIONS[S.leadsRegion] || LEAD_REGIONS['north-east'];
   const statusMsg=S.leadSearching?'Searching…':S.leadResults.length?`${S.leadResults.length} result${S.leadResults.length!==1?'s':''} — click a pin to view details`:'Run a search to find businesses on the map';
   const savedTable=(()=>{
@@ -1066,6 +1195,56 @@ function renderLeads(){
       <div>${savedTable}</div>
     </div>
   </div>`;
+}
+let leadSectionDragId=null;
+function clearLeadSectionTargets(){
+  document.querySelectorAll('[data-lead-section]').forEach(section=>section.classList.remove('drop-target','dragging'));
+}
+function moveLeadSection(sourceId,targetId){
+  if(!sourceId || !targetId || sourceId===targetId) return;
+  const order=[...(S.leadSectionLayout?.order || DEFAULT_LEAD_SECTION_LAYOUT.order)];
+  const sourceIndex=order.indexOf(sourceId);
+  const targetIndex=order.indexOf(targetId);
+  if(sourceIndex<0 || targetIndex<0) return;
+  order.splice(sourceIndex,1);
+  order.splice(targetIndex,0,sourceId);
+  S.leadSectionLayout={order,collapsed:{...DEFAULT_LEAD_SECTION_LAYOUT.collapsed,...(S.leadSectionLayout?.collapsed||{})}};
+  saveLeadSectionLayout();
+  render();
+}
+function bindLeadSections(){
+  document.querySelectorAll('[data-lead-section-handle]').forEach(handle=>{
+    handle.addEventListener('dragstart',e=>{
+      const section=handle.closest('[data-lead-section]');
+      leadSectionDragId=section?.dataset.leadSection || null;
+      if(!leadSectionDragId) return;
+      if(e.dataTransfer){
+        e.dataTransfer.effectAllowed='move';
+        e.dataTransfer.setData('text/plain',leadSectionDragId);
+      }
+      section?.classList.add('dragging');
+    });
+    handle.addEventListener('dragend',()=>{
+      leadSectionDragId=null;
+      clearLeadSectionTargets();
+    });
+  });
+  document.querySelectorAll('[data-lead-section]').forEach(section=>{
+    section.addEventListener('dragover',e=>{
+      if(!leadSectionDragId || section.dataset.leadSection===leadSectionDragId) return;
+      e.preventDefault();
+      section.classList.add('drop-target');
+    });
+    section.addEventListener('dragleave',()=>section.classList.remove('drop-target'));
+    section.addEventListener('drop',e=>{
+      if(!leadSectionDragId) return;
+      e.preventDefault();
+      const targetId=section.dataset.leadSection;
+      clearLeadSectionTargets();
+      moveLeadSection(leadSectionDragId,targetId);
+      leadSectionDragId=null;
+    });
+  });
 }
 let leadMapPointerState=null;
 function applyLeadMapLayout(save=false){
@@ -1220,7 +1399,10 @@ function render(){
     renderOverlay()+
     `<div class="print-sheet" id="printSheet"></div>`;
   bindDrag();
-  if(S.view==='leads') setTimeout(()=>{ bindLeadMapPanel(); initLeadsMap(); },40);
+  if(S.view==='leads'){
+    bindLeadSections();
+    setTimeout(()=>{ bindLeadMapPanel(); initLeadsMap(); },40);
+  }
 }
 function renderSetupBanner(){
   if(!GOOGLE_CLIENT_ID.startsWith('YOUR_CLIENT_ID')) return '';
@@ -1829,6 +2011,14 @@ document.addEventListener('click',e=>{
     case 'drivesignin': driveSignIn(); break;
     case 'drivesignout': driveSignOut(); break;
     case 'printjob': printJobSheet(S.editJobId); break;
+    case 'toggleleadsection':
+      S.leadSectionLayout={
+        order:[...(S.leadSectionLayout?.order || DEFAULT_LEAD_SECTION_LAYOUT.order)],
+        collapsed:{...DEFAULT_LEAD_SECTION_LAYOUT.collapsed,...(S.leadSectionLayout?.collapsed||{}),[el.dataset.section]:!(S.leadSectionLayout?.collapsed?.[el.dataset.section])}
+      };
+      saveLeadSectionLayout();
+      render();
+      break;
     case 'searchleads':
       S.leadsSector=document.getElementById('leadSector')?.value||S.leadsSector;
       S.leadsRegion=document.getElementById('leadRegion')?.value||S.leadsRegion;
