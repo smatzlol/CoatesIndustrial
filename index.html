@@ -333,7 +333,7 @@ textarea.fc{min-height:72px;resize:vertical}
 <script>
 const GOOGLE_CLIENT_ID='1036208514850-0a4fg11ck29iaqjiovmqjaemv4acbelq.apps.googleusercontent.com';
 const DRIVE_FILE='scheduler-data.json';
-const GOOGLE_SCOPES='https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/contacts';
+const GOOGLE_SCOPES='https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/contacts https://www.googleapis.com/auth/gmail.send';
 const GOOGLE_PLACES_API_KEY='AIzaSyARffjc5zxDYFNNMVtpcphXse1cG4C-aaw'; // Optional: used for Leads search via Places API (New)
 
 
@@ -1171,7 +1171,8 @@ function renderLeadEmailStudio(){
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <span class="tag">${esc(previewLead.sector||S.leadsSector)}</span>
           ${targetLead?`<button class="btn-ghost" type="button" data-a="clearleademailtarget">Clear lead</button>`:''}
-          <a class="btn-primary" href="${mailto}" style="text-decoration:none">Open in email client</a>
+          ${targetLead?`<button class="btn-primary" type="button" data-a="sendgmailstudio">Send via Gmail</button>`:''}
+          <a class="${targetLead?'btn-soft':'btn-primary'}" href="${mailto}" style="text-decoration:none">Open in email client</a>
         </div>
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-top:12px">
@@ -1546,6 +1547,37 @@ function handleLeadAction(action,idx){
   if(action==='savelead'){ saveLeadFromResult(idx); }
   else if(action==='openleademail'){ selectLeadForEmailStudio('result',idx); }
 }
+async function sendViaGmail(toEmail, subject, body){
+  const token=gapi.client.getToken()?.access_token;
+  if(!token){ alert('Please sign in with Google first.'); return false; }
+  if(!toEmail){ alert('This lead has no email address.'); return false; }
+  const from='me';
+  const raw=[
+    `To: ${toEmail}`,
+    `Subject: ${subject}`,
+    'Content-Type: text/plain; charset=utf-8',
+    'MIME-Version: 1.0',
+    '',
+    body
+  ].join('\r\n');
+  const encoded=btoa(unescape(encodeURIComponent(raw))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+  try{
+    const resp=await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send',{
+      method:'POST',
+      headers:{'Authorization':`Bearer ${token}`,'Content-Type':'application/json'},
+      body:JSON.stringify({raw:encoded})
+    });
+    if(!resp.ok){
+      const err=await resp.json().catch(()=>({}));
+      alert('Gmail send failed: '+(err?.error?.message||resp.status));
+      return false;
+    }
+    return true;
+  } catch(e){
+    alert('Gmail send error: '+e.message);
+    return false;
+  }
+}
 function renderLeadEmailModal(){
   const r=S.leadEmailSavedId ? DB.leads.find(l=>l.id===S.leadEmailSavedId) : S.leadResults[S.leadEmailIdx];
   if(!r) return `<div class="overlay on"><div class="modal"><button class="modal-close" data-a="closeleademail">✕</button></div></div>`;
@@ -1568,8 +1600,9 @@ function renderLeadEmailModal(){
         <div style="font-size:12px;color:#666;margin-bottom:4px">Body</div>
         <pre style="font-size:12px;white-space:pre-wrap;margin:0;font-family:inherit">${esc(body)}</pre>
       </div>
-      <div style="display:flex;gap:10px">
-        <a class="btn-primary" href="${mailto}" style="text-decoration:none">Open in email client</a>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn-primary" data-a="sendgmailemail">Send via Gmail</button>
+        <a class="btn-soft" href="${mailto}" style="text-decoration:none">Open in email client</a>
         <button class="btn-ghost" data-a="closeleademail">Cancel</button>
       </div>
     </div>
@@ -2317,6 +2350,18 @@ document.addEventListener('click',e=>{
     case 'openleademail': selectLeadForEmailStudio('result',Number(el.dataset.index)); break;
     case 'opensavedemail': selectLeadForEmailStudio('saved',el.dataset.lid); break;
     case 'closeleademail': S.leadEmailIdx=null; S.leadEmailSavedId=null; render(); setTimeout(initLeadsMap,40); break;
+    case 'sendgmailemail': {
+      const r=S.leadEmailSavedId ? DB.leads.find(l=>l.id===S.leadEmailSavedId) : S.leadResults[S.leadEmailIdx];
+      if(r){ const tpl=activeLeadEmailTemplate(); sendViaGmail(r.email||'',personalizeLeadEmail(tpl?.subject||'',r),personalizeLeadEmail(tpl?.body||'',r)).then(ok=>{ if(ok){ S.leadEmailIdx=null; S.leadEmailSavedId=null; render(); setTimeout(initLeadsMap,40); alert('Email sent!'); } }); }
+      break;
+    }
+    case 'sendgmailstudio': {
+      const lead=selectedLeadForEmailStudio();
+      if(!lead){ alert('Select a lead first.'); break; }
+      const tpl=activeLeadEmailTemplate();
+      sendViaGmail(lead.email||'',personalizeLeadEmail(tpl?.subject||'',lead),personalizeLeadEmail(tpl?.body||'',lead)).then(ok=>{ if(ok) alert('Email sent to '+lead.name+'!'); });
+      break;
+    }
     case 'selectemailtemplate': S.leadEmailTemplate=Number(el.dataset.tidx); render(); setTimeout(initLeadsMap,40); break;
   }
 });
