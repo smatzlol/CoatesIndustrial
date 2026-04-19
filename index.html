@@ -779,7 +779,7 @@ const S={
   driveReady:false,driveSignedIn:false,driveSyncing:false,driveError:null,
   contactsModal:false,googleContacts:[],googleContactsLoaded:false,googleContactsLoading:false,googleContactsError:null,
   contactSearch:'',contactPickerMode:'import',contactPickerTargetCustomerId:null,
-  leadsSector:'powder coating',leadsRegion:'north-east',leadSearching:false,leadSearchError:null,leadResults:[],leadSavedSearch:'',leadMapReady:false,leadEmailIdx:null,leadEmailTemplate:0,leadSort:'date',leadGroup:'none'
+  leadsSector:'powder coating',leadsRegion:'north-east',leadSearching:false,leadSearchError:null,leadResults:[],leadSavedSearch:'',leadMapReady:false,leadEmailIdx:null,leadEmailSavedId:null,leadEmailTemplate:0,leadSort:'date',leadGroup:'none'
 };
 
 const I={
@@ -918,22 +918,19 @@ function convertLeadToCustomer(id){
   DB.updateLead(id,{status:'customer',customerId:customer.id});
   S.view='customers'; S.editCustId=customer.id; S.custModal=true; render();
 }
-function renderSavedLead(l){
-  return `<div class="row-item" style="flex-direction:column;align-items:stretch;gap:8px">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
-      <div class="row-title">${esc(l.name)}</div>
-      <span class="pill ${l.status==='customer'?'p-completed':'p-approved'}" style="flex-shrink:0">${esc((l.status||'new').replace('-',' '))}</span>
-    </div>
-    <div class="row-sub" style="margin-top:0">
-      ${l.sector?`<span>${esc(l.sector)}</span>`:''}
-      <span>${esc(LEAD_REGIONS[l.region]?.label||l.region||'')}</span>
-      ${l.website?`<span>${esc(l.website.replace(/^https?:\/\//,''))}</span>`:''}
-    </div>
-    <div style="display:flex;gap:6px;flex-wrap:wrap">
-      <button class="btn-soft" style="padding:5px 10px;font-size:12px" data-a="leadtocustomer" data-lid="${l.id}">To customer</button>
-      <button class="btn-del" style="padding:5px 10px;font-size:12px" data-a="deletelead" data-lid="${l.id}">Delete</button>
-    </div>
-  </div>`;
+function renderSavedLeadRow(l){
+  return `<tr style="border-bottom:1px solid var(--bdr)">
+    <td style="padding:8px 10px;font-weight:600;font-size:13px;min-width:140px">${esc(l.name)}${l.website?`<div style="font-size:11px;color:var(--t2);font-weight:400;margin-top:2px">${esc(l.website.replace(/^https?:\/\//,''))}</div>`:''}</td>
+    <td style="padding:8px 10px;font-size:12px;color:var(--t1);white-space:nowrap">${esc(LEAD_REGIONS[l.region]?.label||l.region||'')}</td>
+    <td style="padding:8px 10px"><span class="pill ${l.status==='customer'?'p-completed':'p-approved'}">${esc((l.status||'new').replace('-',' '))}</span></td>
+    <td style="padding:8px 10px">
+      <div style="display:flex;gap:5px;flex-wrap:wrap">
+        <button class="btn-soft" style="padding:4px 8px;font-size:11px" data-a="leadtocustomer" data-lid="${l.id}">To customer</button>
+        <button class="btn-soft" style="padding:4px 8px;font-size:11px" data-a="opensavedemail" data-lid="${l.id}">Email</button>
+        <button class="btn-del" style="padding:4px 8px;font-size:11px" data-a="deletelead" data-lid="${l.id}">Delete</button>
+      </div>
+    </td>
+  </tr>`;
 }
 function renderLeads(){
   const region=LEAD_REGIONS[S.leadsRegion] || LEAD_REGIONS['north-east'];
@@ -958,40 +955,39 @@ function renderLeads(){
         </div>
       </div>
       <div class="panel leads-panel">
-        <div class="panel-h"><h3>Saved leads</h3><span class="muted">${leadSavedCount()} saved</span></div>
-        <div class="panel-b" style="padding-bottom:8px">
-          <div style="display:flex;gap:6px;margin-bottom:10px">
-            <div class="fg" style="flex:1">
-              <label>Sort</label>
-              <select class="fc" id="leadSortSel" style="padding:6px 8px;font-size:12px">
-                <option value="date" ${S.leadSort==='date'?'selected':''}>Newest first</option>
-                <option value="name" ${S.leadSort==='name'?'selected':''}>Name A–Z</option>
-                <option value="sector" ${S.leadSort==='sector'?'selected':''}>Sector</option>
-                <option value="region" ${S.leadSort==='region'?'selected':''}>Region</option>
-              </select>
-            </div>
-            <div class="fg" style="flex:1">
-              <label>Group by</label>
-              <select class="fc" id="leadGroupSel" style="padding:6px 8px;font-size:12px">
-                <option value="none" ${S.leadGroup==='none'?'selected':''}>None</option>
-                <option value="sector" ${S.leadGroup==='sector'?'selected':''}>Sector</option>
-                <option value="region" ${S.leadGroup==='region'?'selected':''}>Region</option>
-              </select>
-            </div>
+        <div class="panel-h"><h3>Saved leads</h3>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="muted">${leadSavedCount()} saved</span>
+            <select class="fc" id="leadSortSel" style="padding:4px 8px;font-size:12px;width:auto">
+              <option value="date" ${S.leadSort==='date'?'selected':''}>Newest first</option>
+              <option value="name" ${S.leadSort==='name'?'selected':''}>Name A–Z</option>
+              <option value="region" ${S.leadSort==='region'?'selected':''}>Region</option>
+            </select>
           </div>
+        </div>
+        <div style="padding-bottom:8px">
           ${(()=>{
-            if(!saved.length) return `<div class="empty-state">No saved leads yet</div>`;
-            let list=[...saved];
-            const sortKey={date:(a,b)=>b.createdAt-a.createdAt,name:(a,b)=>a.name.localeCompare(b.name),sector:(a,b)=>(a.sector||'').localeCompare(b.sector||''),region:(a,b)=>(a.region||'').localeCompare(b.region||'')}[S.leadSort]||(()=>0);
+            if(!DB.leads.length) return `<div class="empty-state" style="padding:32px 16px">No saved leads yet</div>`;
+            let list=[...DB.leads];
+            const sortKey={date:(a,b)=>b.createdAt-a.createdAt,name:(a,b)=>a.name.localeCompare(b.name),region:(a,b)=>(a.region||'').localeCompare(b.region||'')}[S.leadSort]||(()=>0);
             list.sort(sortKey);
-            if(S.leadGroup==='none') return `<div class="mini-list">${list.map(renderSavedLead).join('')}</div>`;
-            const groupKey=S.leadGroup==='sector'?l=>l.sector||'Unknown':l=>LEAD_REGIONS[l.region]?.label||l.region||'Unknown';
             const groups={};
-            list.forEach(l=>{ const k=groupKey(l); (groups[k]=groups[k]||[]).push(l); });
-            return Object.entries(groups).map(([k,items])=>`
-              <div style="margin-bottom:12px">
-                <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--t1);margin-bottom:6px;padding:0 2px">${esc(k)} <span style="color:var(--t2)">(${items.length})</span></div>
-                <div class="mini-list">${items.map(renderSavedLead).join('')}</div>
+            list.forEach(l=>{ const k=l.sector||'Other'; (groups[k]=groups[k]||[]).push(l); });
+            return Object.entries(groups).map(([sector,items])=>`
+              <div style="border-bottom:1px solid var(--bdr)">
+                <div style="display:flex;align-items:center;gap:8px;padding:10px 14px 8px;background:var(--c2)">
+                  <span style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--t1)">${esc(sector)}</span>
+                  <span style="font-size:11px;color:var(--t2)">${items.length} lead${items.length!==1?'s':''}</span>
+                </div>
+                <table style="width:100%;border-collapse:collapse">
+                  <thead><tr style="background:var(--c1)">
+                    <th style="padding:6px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--t2);border-bottom:1px solid var(--bdr)">Name</th>
+                    <th style="padding:6px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--t2);border-bottom:1px solid var(--bdr)">Region</th>
+                    <th style="padding:6px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--t2);border-bottom:1px solid var(--bdr)">Status</th>
+                    <th style="padding:6px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--t2);border-bottom:1px solid var(--bdr)">Actions</th>
+                  </tr></thead>
+                  <tbody>${items.map(renderSavedLeadRow).join('')}</tbody>
+                </table>
               </div>`).join('');
           })()}
         </div>
@@ -1048,7 +1044,7 @@ function handleLeadAction(action,idx){
   else if(action==='openleademail'){ S.leadEmailIdx=idx; S.leadEmailTemplate=0; render(); setTimeout(initLeadsMap,40); }
 }
 function renderLeadEmailModal(){
-  const r=S.leadResults[S.leadEmailIdx];
+  const r=S.leadEmailSavedId ? DB.leads.find(l=>l.id===S.leadEmailSavedId) : S.leadResults[S.leadEmailIdx];
   if(!r) return `<div class="overlay on"><div class="modal"><button class="modal-close" data-a="closeleademail">✕</button></div></div>`;
   const tpl=EMAIL_TEMPLATES[S.leadEmailTemplate];
   const name=r.name||'';
@@ -1365,7 +1361,7 @@ function renderAssets(){
     </div>`;
 }
 function renderOverlay(){
-  if(S.leadEmailIdx!==null) return renderLeadEmailModal();
+  if(S.leadEmailIdx!==null || S.leadEmailSavedId!==null) return renderLeadEmailModal();
   if(S.contactsModal) return renderContactsModal();
   if(S.jobModal) return renderJobModal();
   if(S.custModal) return renderCustomerModal();
@@ -1706,8 +1702,9 @@ document.addEventListener('click',e=>{
     case 'savelead': saveLeadFromResult(Number(el.dataset.index)); break;
     case 'leadtocustomer': convertLeadToCustomer(el.dataset.lid); break;
     case 'deletelead': if(confirm('Delete this saved lead?')){ DB.deleteLead(el.dataset.lid); render(); } break;
-    case 'openleademail': S.leadEmailIdx=Number(el.dataset.index); S.leadEmailTemplate=0; render(); setTimeout(initLeadsMap,40); break;
-    case 'closeleademail': S.leadEmailIdx=null; render(); setTimeout(initLeadsMap,40); break;
+    case 'openleademail': S.leadEmailIdx=Number(el.dataset.index); S.leadEmailSavedId=null; S.leadEmailTemplate=0; render(); setTimeout(initLeadsMap,40); break;
+    case 'opensavedemail': S.leadEmailSavedId=el.dataset.lid; S.leadEmailIdx=null; S.leadEmailTemplate=0; render(); setTimeout(initLeadsMap,40); break;
+    case 'closeleademail': S.leadEmailIdx=null; S.leadEmailSavedId=null; render(); setTimeout(initLeadsMap,40); break;
     case 'selectemailtemplate': S.leadEmailTemplate=Number(el.dataset.tidx); render(); setTimeout(initLeadsMap,40); break;
   }
 });
@@ -1726,7 +1723,6 @@ document.addEventListener('change',e=>{
   if(e.target.id==='schedMode'){ S.scheduleMode=e.target.value; render(); }
   if(e.target.id==='schedDate'){ S.scheduleDate=e.target.value; render(); }
   if(e.target.id==='leadSortSel'){ S.leadSort=e.target.value; render(); setTimeout(initLeadsMap,40); }
-  if(e.target.id==='leadGroupSel'){ S.leadGroup=e.target.value; render(); setTimeout(initLeadsMap,40); }
 });
 document.addEventListener('input',e=>{
   if(e.target.dataset.a==='searchcust'){ S.search=e.target.value; clearTimeout(window._st); window._st=setTimeout(render,100); }
