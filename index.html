@@ -235,6 +235,8 @@ textarea.fc{min-height:72px;resize:vertical}
   .modal{width:100%}
 }
 </style>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 </head>
 <script src="https://apis.google.com/js/api.js" async defer onload="gapiLoaded()"></script>
 <script src="https://accounts.google.com/gsi/client" async defer onload="gisLoaded()"></script>
@@ -244,6 +246,8 @@ textarea.fc{min-height:72px;resize:vertical}
 const GOOGLE_CLIENT_ID='1036208514850-0a4fg11ck29iaqjiovmqjaemv4acbelq.apps.googleusercontent.com';
 const DRIVE_FILE='scheduler-data.json';
 const GOOGLE_SCOPES='https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/contacts';
+const GOOGLE_PLACES_API_KEY='AIzaSyARffjc5zxDYFNNMVtpcphXse1cG4C-aaw'; // Optional: used for Leads search via Places API (New)
+
 
 const CUST_COLORS=['#7161ef','#22d3a5','#38b2f8','#f5a623','#f472b6','#4ade80','#fb923c','#60a5fa','#e879f9','#facc15','#34d399','#f87171','#a78bfa','#2dd4bf','#fbbf24'];
 const STATUS_META={
@@ -315,7 +319,7 @@ function statusClass(s){ return STATUS_META[s]?.cls || 'p-scheduled'; }
 function statusColor(s){ return STATUS_META[s]?.color || '#7161ef'; }
 
 const DB={
-  customers:[], jobs:[], assets:[], alertsDismissed:{},
+  customers:[], jobs:[], assets:[], leads:[], alertsDismissed:{},
   load(){
     try{
       const raw=localStorage.getItem('sch1');
@@ -334,10 +338,11 @@ const DB={
         ...j
       }));
       this.assets=(d.assets||[]).map(a=>({status:a.status||'active',...a}));
+      this.leads=(d.leads||[]).map(l=>({status:l.status||'new',source:l.source||'Places API (New)',...l}));
     }catch(e){}
   },
   save(){
-    const payload=JSON.stringify({customers:this.customers,jobs:this.jobs,assets:this.assets});
+    const payload=JSON.stringify({customers:this.customers,jobs:this.jobs,assets:this.assets,leads:this.leads});
     localStorage.setItem('sch1',payload);
     driveSaveDebounced(payload);
   },
@@ -352,6 +357,9 @@ const DB={
   updateAsset(id,u){ const i=this.assets.findIndex(a=>a.id===id); if(i>-1){this.assets[i]={...this.assets[i],...u}; this.save();} },
   deleteAsset(id){ this.assets=this.assets.filter(a=>a.id!==id); this.jobs=this.jobs.map(j=>({...j,assetIds:(j.assetIds||[]).filter(x=>x!==id)})); this.save(); },
   addJob(j){ const rec={id:uid(),createdAt:Date.now(),status:'scheduled',recurrence:'none',assetIds:[],...j}; this.jobs.push(rec); this.save(); return rec; },
+  addLead(l){ const rec={id:uid(),createdAt:Date.now(),status:'new',source:'Places API (New)',...l}; this.leads.unshift(rec); this.save(); return rec; },
+  updateLead(id,u){ const i=this.leads.findIndex(l=>l.id===id); if(i>-1){ this.leads[i]={...this.leads[i],...u}; this.save(); } },
+  deleteLead(id){ this.leads=this.leads.filter(l=>l.id!==id); this.save(); },
   updateJob(id,u){
     const i=this.jobs.findIndex(j=>j.id===id);
     if(i<0) return;
@@ -717,7 +725,8 @@ const S={
   scheduleDate:todayStr(),
   driveReady:false,driveSignedIn:false,driveSyncing:false,driveError:null,
   contactsModal:false,googleContacts:[],googleContactsLoaded:false,googleContactsLoading:false,googleContactsError:null,
-  contactSearch:'',contactPickerMode:'import',contactPickerTargetCustomerId:null
+  contactSearch:'',contactPickerMode:'import',contactPickerTargetCustomerId:null,
+  leadsSector:'powder coating',leadsRegion:'north-east',leadSearching:false,leadSearchError:null,leadResults:[],leadSavedSearch:'',leadMapReady:false
 };
 
 const I={
@@ -735,7 +744,8 @@ const I={
   person:`<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`,
   phone:`<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 2.18h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L7.91 9.91a16 16 0 0 0 6.18 6.18l.99-.99a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>`,
   mail:`<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>`,
-  printer:`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v8H6z"/></svg>`
+  printer:`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v8H6z"/></svg>`,
+  map:`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l-6 3V6l6-3m0 15 6 3m-6-3V3m6 18 6-3V3l-6 3m0 15V6"/></svg>`
 };
 
 function computeAlerts(){
@@ -776,6 +786,167 @@ function overdueAssetsList(limit=6){
 function assetsForCustomer(customerId){ return DB.assets.filter(a=>a.customerId===customerId); }
 function jobsForAsset(assetId){ return DB.jobs.filter(j=>(j.assetIds||[]).includes(assetId)).sort((a,b)=>(b.date||'').localeCompare(a.date||'')); }
 
+
+const LEAD_SECTORS=['powder coating','food manufacturing','steel fabrication','foundry','heat treatment','process plant','warehousing heating','automotive manufacturing','engineering services','packaging'];
+const LEAD_REGIONS={
+  'north-east':{label:'North East', center:[54.9783,-1.6178], radius:90000, search:'North East England'},
+  'yorkshire':{label:'Yorkshire', center:[53.8008,-1.5491], radius:110000, search:'Yorkshire England'},
+  'north-west':{label:'North West', center:[53.4808,-2.2426], radius:120000, search:'North West England'},
+  'midlands':{label:'Midlands', center:[52.4862,-1.8904], radius:125000, search:'Midlands England'},
+  'south-east':{label:'South East', center:[51.5072,-0.1276], radius:130000, search:'South East England'},
+  'scotland':{label:'Scotland', center:[55.9533,-3.1883], radius:170000, search:'Scotland'}
+};
+let leadMap=null, leadMarkers=[];
+function leadSavedCount(){ return DB.leads.length; }
+function buildLeadTextQuery(){
+  const region=LEAD_REGIONS[S.leadsRegion] || LEAD_REGIONS['north-east'];
+  return `${S.leadsSector} businesses in ${region.search}, UK`;
+}
+async function searchLeads(){
+  S.leadSearchError=null;
+  if(!GOOGLE_PLACES_API_KEY){ S.leadSearchError='Add a Places API key to GOOGLE_PLACES_API_KEY to run live lead searches.'; S.leadResults=[]; render(); return; }
+  const region=LEAD_REGIONS[S.leadsRegion] || LEAD_REGIONS['north-east'];
+  S.leadSearching=true; S.leadSavedSearch=buildLeadTextQuery(); render();
+  try{
+    const res=await fetch('https://places.googleapis.com/v1/places:searchText',{
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'X-Goog-Api-Key':GOOGLE_PLACES_API_KEY,
+        'X-Goog-FieldMask':'places.id,places.displayName,places.formattedAddress,places.websiteUri,places.nationalPhoneNumber,places.location,places.businessStatus,places.types,places.googleMapsUri'
+      },
+      body:JSON.stringify({
+        textQuery:buildLeadTextQuery(),
+        maxResultCount:15,
+        locationBias:{circle:{center:{latitude:region.center[0],longitude:region.center[1]},radius:region.radius}}
+      })
+    });
+    if(!res.ok){ throw new Error(`Search failed (${res.status})`); }
+    const data=await res.json();
+    const places=(data.places||[]).map(p=>( {
+      placeId:p.id||'',
+      name:p.displayName?.text || 'Unnamed business',
+      address:p.formattedAddress || '',
+      website:p.websiteUri || '',
+      phone:p.nationalPhoneNumber || '',
+      lat:p.location?.latitude || null,
+      lng:p.location?.longitude || null,
+      status:p.businessStatus || '',
+      types:p.types || [],
+      mapsUri:p.googleMapsUri || '',
+      sector:S.leadsSector,
+      region:S.leadsRegion
+    }));
+    S.leadResults=places;
+    if(!places.length) S.leadSearchError='No businesses found for that sector and region.';
+  }catch(err){
+    console.error(err);
+    S.leadSearchError=err.message || 'Lead search failed';
+    S.leadResults=[];
+  }
+  S.leadSearching=false; render();
+}
+function saveLeadFromResult(idx){
+  const lead=S.leadResults[idx]; if(!lead) return;
+  const exists=DB.leads.some(l=>l.placeId && lead.placeId && l.placeId===lead.placeId);
+  if(exists){ alert('That lead is already saved.'); return; }
+  DB.addLead(lead); render();
+}
+function convertLeadToCustomer(id){
+  const lead=DB.leads.find(l=>l.id===id); if(!lead) return;
+  const customer=DB.addCustomer({
+    name:lead.name, company:'', phone:lead.phone||'', email:'', address:lead.address||'', notes:`Lead added from ${lead.source||'lead search'} on ${new Date().toLocaleDateString('en-GB')}.\nWebsite: ${lead.website||''}\nSector: ${lead.sector||''}`, color:nextCustColor()
+  });
+  DB.updateLead(id,{status:'customer',customerId:customer.id});
+  S.view='customers'; S.editCustId=customer.id; S.custModal=true; render();
+}
+function renderSavedLead(l){
+  return `<div class="row-item saved-lead">
+    <div class="row-main">
+      <div class="row-title">${esc(l.name)}</div>
+      <div class="row-sub"><span>${esc(LEAD_REGIONS[l.region]?.label || l.region || '')}</span>${l.website?`<span>${esc(l.website.replace(/^https?:\/\//,''))}</span>`:''}</div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <span class="pill ${l.status==='customer'?'p-completed':'p-approved'}">${esc((l.status||'new').replace('-', ' '))}</span>
+      <button class="btn-soft" data-a="leadtocustomer" data-lid="${l.id}">To customer</button>
+    </div>
+  </div>`;
+}
+function renderLeads(){
+  const region=LEAD_REGIONS[S.leadsRegion] || LEAD_REGIONS['north-east'];
+  const saved=DB.leads.slice(0,8);
+  return `<div class="leads-layout">
+    <div class="leads-side">
+      <div class="leads-panel panel">
+        <div class="panel-h"><h3>Lead finder</h3><span class="muted">Search UK sectors and save prospects</span></div>
+        <div class="panel-b">
+          <div class="lead-grid">
+            <div class="fg"><label>Sector</label><select class="fc" id="leadSector">${LEAD_SECTORS.map(s=>`<option value="${esc(s)}" ${S.leadsSector===s?'selected':''}>${esc(s.replace(/\w/g,m=>m.toUpperCase()))}</option>`).join('')}</select></div>
+            <div class="fg"><label>Region</label><select class="fc" id="leadRegion">${Object.entries(LEAD_REGIONS).map(([k,v])=>`<option value="${k}" ${S.leadsRegion===k?'selected':''}>${esc(v.label)}</option>`).join('')}</select></div>
+          </div>
+          <div class="fg" style="margin-top:10px"><label>Quick sectors</label><div class="lead-chipbar">${LEAD_SECTORS.slice(0,6).map(s=>`<button class="lead-chip ${S.leadsSector===s?'on':''}" data-a="leadchip" data-sector="${esc(s)}">${esc(s)}</button>`).join('')}</div></div>
+          <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+            <button class="btn-primary" data-a="searchleads">${I.search} Search leads</button>
+            <button class="btn-ghost" data-a="fitleadregion">${I.map} Centre map</button>
+          </div>
+          <div class="map-note" style="margin-top:10px">Query: <strong>${esc(buildLeadTextQuery())}</strong></div>
+          ${S.leadSearchError?`<div class="empty-state" style="padding:16px 0 0;text-align:left">${esc(S.leadSearchError)}</div>`:''}
+        </div>
+      </div>
+      <div class="panel leads-panel">
+        <div class="panel-h"><h3>Saved leads</h3><span class="muted">${leadSavedCount()} saved</span></div>
+        <div class="panel-b mini-list">${saved.length?saved.map(renderSavedLead).join(''):`<div class="empty-state">No saved leads yet</div>`}</div>
+      </div>
+    </div>
+    <div class="leads-map-panel">
+      <div class="leads-map-head"><div><strong>${esc(region.label)}</strong><div class="muted">Map uses OpenStreetMap. Business search uses Google Places.</div></div><div class="muted">${S.leadResults.length} result${S.leadResults.length!==1?'s':''}</div></div>
+      <div id="leadsMap" class="leads-map"></div>
+      <div class="panel-b">
+        ${S.leadSearching?`<div class="empty-state">Searching businesses…</div>`:(S.leadResults.length?S.leadResults.map((r,i)=>`<div class="lead-result">
+            <div class="lead-main">
+              <div class="lead-title">${esc(r.name)}</div>
+              <div class="lead-sub">
+                ${r.address?`<span>${esc(r.address)}</span>`:''}
+                <span>${esc(r.phone || 'No phone returned')}</span>
+                ${r.website?`<span>${esc(r.website)}</span>`:''}
+              </div>
+              <div class="lead-badge">${esc(S.leadsSector)}</div>
+            </div>
+            <div class="lead-actions">
+              <button class="btn-soft" data-a="savelead" data-index="${i}">Save lead</button>
+              ${r.mapsUri?`<a class="btn-ghost" href="${esc(r.mapsUri)}" target="_blank" rel="noopener">Open Maps</a>`:''}
+            </div>
+          </div>`).join(''):`<div class="empty-state">Run a lead search to list businesses on the map.</div>`)}
+      </div>
+    </div>
+  </div>`;
+}
+function initLeadsMap(){
+  const el=document.getElementById('leadsMap'); if(!el || typeof L==='undefined') return;
+  const region=LEAD_REGIONS[S.leadsRegion] || LEAD_REGIONS['north-east'];
+  if(!leadMap){
+    leadMap=L.map(el,{zoomControl:true}).setView(region.center,8);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'&copy; OpenStreetMap contributors'}).addTo(leadMap);
+    S.leadMapReady=true;
+  }else{
+    setTimeout(()=>leadMap.invalidateSize(),50);
+  }
+  renderLeadMarkers();
+}
+function renderLeadMarkers(){
+  if(!leadMap) return;
+  leadMarkers.forEach(m=>leadMap.removeLayer(m)); leadMarkers=[];
+  const region=LEAD_REGIONS[S.leadsRegion] || LEAD_REGIONS['north-east'];
+  const pts=S.leadResults.filter(r=>typeof r.lat==='number' && typeof r.lng==='number');
+  if(!pts.length){ leadMap.setView(region.center,8); return; }
+  pts.forEach((r,i)=>{
+    const m=L.marker([r.lat,r.lng]).addTo(leadMap).bindPopup(`<strong>${esc(r.name)}</strong><br>${esc(r.address||'')}<br>${esc(r.phone||'')}`);
+    leadMarkers.push(m);
+  });
+  const group=L.featureGroup(leadMarkers);
+  leadMap.fitBounds(group.getBounds().pad(0.25));
+}
+
 function render(){
   document.getElementById('app').innerHTML=
     renderHeader()+
@@ -784,10 +955,11 @@ function render(){
     renderOverlay()+
     `<div class="print-sheet" id="printSheet"></div>`;
   bindDrag();
+  if(S.view==='leads') setTimeout(initLeadsMap,40);
 }
 function renderSetupBanner(){
   if(!GOOGLE_CLIENT_ID.startsWith('YOUR_CLIENT_ID')) return '';
-  return `<div class="banner">Google Drive sync is ready to enable. Replace <code>YOUR_CLIENT_ID_HERE.apps.googleusercontent.com</code> in the file with your OAuth Client ID.</div>`;
+  return `<div class="banner">Google Drive sync is ready to enable. Replace <code>YOUR_CLIENT_ID_HERE.apps.googleusercontent.com</code> with your OAuth Client ID. For live lead searches, also set <code>GOOGLE_PLACES_API_KEY</code>.</div>`;
 }
 function renderDriveBtn(){
   if(GOOGLE_CLIENT_ID.startsWith('YOUR_CLIENT_ID')) return '';
@@ -804,7 +976,8 @@ function renderHeader(){
     ['planning','Planning',I.board],
     ['schedule','Schedule',I.clock],
     ['customers','Customers',I.users],
-    ['assets','Assets',I.asset]
+    ['assets','Assets',I.asset],
+    ['leads','Leads',I.map]
   ];
   return `<header class="hdr">
     <div class="logo">${I.cal}<span>Coates Industrial Scheduler</span><small>Ops</small></div>
@@ -826,6 +999,7 @@ function renderMain(){
   if(S.view==='schedule') return renderSchedule();
   if(S.view==='customers') return renderCustomers();
   if(S.view==='assets') return renderAssets();
+  if(S.view==='leads') return renderLeads();
   return '';
 }
 function renderDashboard(){
