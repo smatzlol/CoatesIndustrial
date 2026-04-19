@@ -1,4 +1,4 @@
- <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -241,8 +241,9 @@ textarea.fc{min-height:72px;resize:vertical}
 <body>
 <div id="app"></div>
 <script>
-const GOOGLE_CLIENT_ID = '1036208514850-0a4fg11ck29iaqjiovmqjaemv4acbelq.apps.googleusercontent.com';
+const GOOGLE_CLIENT_ID='YOUR_CLIENT_ID_HERE.apps.googleusercontent.com';
 const DRIVE_FILE='scheduler-data.json';
+const GOOGLE_SCOPES='https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/contacts.readonly';
 
 const CUST_COLORS=['#7161ef','#22d3a5','#38b2f8','#f5a623','#f472b6','#4ade80','#fb923c','#60a5fa','#e879f9','#facc15','#34d399','#f87171','#a78bfa','#2dd4bf','#fbbf24'];
 const STATUS_META={
@@ -396,7 +397,7 @@ function gisLoaded(){
   if(GOOGLE_CLIENT_ID.startsWith('YOUR_CLIENT_ID')){ S.driveReady=false; return; }
   _tokenClient=google.accounts.oauth2.initTokenClient({
     client_id:GOOGLE_CLIENT_ID,
-    scope:'https://www.googleapis.com/auth/drive.file',
+    scope:GOOGLE_SCOPES,
     callback:_handleToken
   });
   _gisReady=true; _driveCheckReady();
@@ -464,6 +465,142 @@ function driveSaveDebounced(payload){
   }, 1200);
 }
 
+function contactApiEnabled(){ return !GOOGLE_CLIENT_ID.startsWith('YOUR_CLIENT_ID'); }
+function customerDataFromGoogleContact(contact){
+  return {
+    name:contact.displayName||'',
+    company:contact.company||'',
+    phone:contact.phone||'',
+    email:contact.email||'',
+    address:contact.address||''
+  };
+}
+function normalizeGoogleContact(person){
+  const getPrimary=(arr,key)=>Array.isArray(arr)&&arr.length?(arr.find(x=>x.metadata?.primary)||arr[0])?.[key]||'':'';
+  return {
+    resourceName:person.resourceName,
+    etag:person.etag||'',
+    displayName:getPrimary(person.names,'displayName'),
+    phone:getPrimary(person.phoneNumbers,'value'),
+    email:getPrimary(person.emailAddresses,'value'),
+    company:getPrimary(person.organizations,'name'),
+    title:getPrimary(person.organizations,'title'),
+    address:getPrimary(person.addresses,'formattedValue') || ''
+  };
+}
+async function fetchGoogleContacts(){
+  const token=gapi.client.getToken()?.access_token;
+  if(!token) throw new Error('No Google token');
+  let out=[]; let pageToken='';
+  for(let i=0;i<5;i++){
+    const url=new URL('https://people.googleapis.com/v1/people/me/connections');
+    url.searchParams.set('personFields','names,emailAddresses,phoneNumbers,organizations,addresses');
+    url.searchParams.set('pageSize','200');
+    url.searchParams.set('sortOrder','LAST_MODIFIED_DESCENDING');
+    if(pageToken) url.searchParams.set('pageToken',pageToken);
+    const resp=await fetch(url.toString(),{headers:{Authorization:`Bearer ${token}`}});
+    if(!resp.ok) throw new Error('Contacts request failed');
+    const data=await resp.json();
+    out=out.concat((data.connections||[]).map(normalizeGoogleContact).filter(c=>c.resourceName && c.displayName));
+    pageToken=data.nextPageToken||'';
+    if(!pageToken) break;
+  }
+  const seen=new Set();
+  return out.filter(c=>{ if(seen.has(c.resourceName)) return false; seen.add(c.resourceName); return true; });
+}
+async function ensureGoogleContactsLoaded(force=false){
+  if(!S.driveSignedIn){ S.googleContactsError='Sign in with Google first'; return; }
+  if(S.googleContactsLoaded && !force) return;
+  S.googleContactsLoading=true; S.googleContactsError=null; render();
+  try{
+    S.googleContacts=await fetchGoogleContacts();
+    S.googleContactsLoaded=true;
+  }catch(e){
+    console.error(e);
+    S.googleContactsError='Could not load Google Contacts';
+  }
+  S.googleContactsLoading=false; render();
+}
+async function openContactPicker(mode,targetCustomerId=null){
+  if(!contactApiEnabled()) { alert('Add your Google Client ID first to use Google Contacts.'); return; }
+  if(!S.driveSignedIn) { driveSignIn(); return; }
+  S.contactPickerMode=mode;
+  S.contactPickerTargetCustomerId=targetCustomerId;
+  S.contactSearch='';
+  S.contactsModal=true;
+  S.jobModal=false; S.custModal=false; S.assetModal=false;
+  render();
+  await ensureGoogleContactsLoaded();
+}
+function importGoogleContact(resourceName){
+  const contact=S.googleContacts.find(c=>c.resourceName===resourceName);
+  if(!contact) return;
+  const existing=DB.customers.find(c=>c.googleContactId===resourceName);
+  if(existing){
+    S.contactsModal=false; S.editCustId=existing.id; S.custModal=true; render();
+    return;
+  }
+  const created=DB.addCustomer({
+    ...customerDataFromGoogleContact(contact),
+    notes:'',
+    color:nextCustColor(),
+    googleContactId:contact.resourceName,
+    googleContactName:contact.displayName,
+    googleContactSyncedAt:Date.now()
+  });
+  S.contactsModal=false; S.editCustId=created.id; S.custModal=true; render();
+}
+function linkGoogleContactToCustomer(customerId,resourceName){
+  const contact=S.googleContacts.find(c=>c.resourceName===resourceName);
+  if(!contact || !customerId) return;
+  DB.updateCustomer(customerId,{
+    ...customerDataFromGoogleContact(contact),
+    googleContactId:contact.resourceName,
+    googleContactName:contact.displayName,
+    googleContactSyncedAt:Date.now()
+  });
+  S.contactsModal=false; S.editCustId=customerId; S.custModal=true; render();
+}
+async function refreshCustomerFromGoogle(customerId){
+  const customer=DB.getCustomer(customerId);
+  if(!customer?.googleContactId){ alert('This customer is not linked to a Google contact yet.'); return; }
+  if(!S.driveSignedIn){ driveSignIn(); return; }
+  await ensureGoogleContactsLoaded(true);
+  const contact=S.googleContacts.find(c=>c.resourceName===customer.googleContactId);
+  if(!contact){ alert('Linked Google contact was not found.'); return; }
+  DB.updateCustomer(customerId,{
+    ...customerDataFromGoogleContact(contact),
+    googleContactName:contact.displayName,
+    googleContactSyncedAt:Date.now()
+  });
+  S.editCustId=customerId; S.custModal=true; render();
+}
+function renderContactsModal(){
+  const q=S.contactSearch.trim().toLowerCase();
+  const modeLabel=S.contactPickerMode==='link'?'Link Google Contact':'Import Google Contact';
+  const target=S.contactPickerTargetCustomerId?DB.getCustomer(S.contactPickerTargetCustomerId):null;
+  const contacts=(S.googleContacts||[]).filter(c=>!q || [c.displayName,c.company,c.email,c.phone,c.address].join(' ').toLowerCase().includes(q));
+  return `<div class="overlay on">
+    <div class="modal">
+      <div class="mhd"><div class="mtitle">${modeLabel}${target?` · ${esc(target.name)}`:''}</div><button class="btn-icon" data-a="closecontacts">${I.x}</button></div>
+      <div class="mbody">
+        <div class="fg">
+          <label>Search Google Contacts</label>
+          <input class="fc" id="googleContactSearch" data-a="contactsearch" value="${esc(S.contactSearch)}" placeholder="Search name, company, email or phone">
+        </div>
+        ${S.googleContactsLoading?`<div class="empty-state">Loading Google Contacts…</div>`:''}
+        ${S.googleContactsError?`<div class="empty-state">${esc(S.googleContactsError)}</div>`:''}
+        ${!S.googleContactsLoading?`<div class="list-lines">${contacts.length?contacts.slice(0,120).map(c=>`<div class="line" style="display:flex;justify-content:space-between;gap:10px;align-items:center"><div><strong>${esc(c.displayName)}</strong>${c.company?` · ${esc(c.company)}`:''}<br><span class="muted">${esc(c.email||c.phone||c.address||'No extra details')}</span></div><button class="btn-soft" data-a="pickcontact" data-resource="${esc(c.resourceName)}">${S.contactPickerMode==='link'?'Link':'Import'}</button></div>`).join(''):`<div class="line">No contacts found</div>`}</div>`:''}
+      </div>
+      <div class="mft">
+        <button class="btn-soft" data-a="reloadcontacts">Refresh contacts</button>
+        <div class="sp"></div>
+        <button class="btn-ghost" data-a="closecontacts">Close</button>
+      </div>
+    </div>
+  </div>`;
+}
+
 const S={
   year:todayObj().getFullYear(),
   view:'dashboard',
@@ -474,7 +611,9 @@ const S={
   search:'',assetSearch:'',
   scheduleMode:'week',
   scheduleDate:todayStr(),
-  driveReady:false,driveSignedIn:false,driveSyncing:false,driveError:null
+  driveReady:false,driveSignedIn:false,driveSyncing:false,driveError:null,
+  contactsModal:false,googleContacts:[],googleContactsLoaded:false,googleContactsLoading:false,googleContactsError:null,
+  contactSearch:'',contactPickerMode:'import',contactPickerTargetCustomerId:null
 };
 
 const I={
@@ -764,6 +903,7 @@ function renderCustomers(){
   const list=DB.customers.filter(c=>!q || [c.name,c.company,c.phone,c.email,c.address,c.notes].join(' ').toLowerCase().includes(q));
   return `<div class="filters">
       <div class="sbox">${I.search}<input id="searchCustomers" data-a="searchcust" placeholder="Search customers…" value="${esc(S.search)}"></div>
+      <button class="btn-soft" data-a="importgoogle">Import Google Contact</button>
       <button class="btn-primary" data-a="addcust">${I.plus} Add Customer</button>
     </div>
     <div class="cgrid">
@@ -781,6 +921,7 @@ function renderCustomers(){
             ${c.email?`<div class="cdrow">${I.mail} ${esc(c.email)}</div>`:''}
             ${c.address?`<div class="cdrow">${I.pin} ${esc(c.address)}</div>`:''}
             <div class="cdrow">${jobs} jobs · ${siteAssets} assets</div>
+            ${c.googleContactId?`<div class="cdrow">Linked to Google Contacts</div>`:''}
           </div>
         </div>`;
       }).join(''):`<div class="empty-state" style="grid-column:1/-1">No customers yet</div>`}
@@ -817,6 +958,7 @@ function renderAssets(){
     </div>`;
 }
 function renderOverlay(){
+  if(S.contactsModal) return renderContactsModal();
   if(S.jobModal) return renderJobModal();
   if(S.custModal) return renderCustomerModal();
   if(S.assetModal) return renderAssetModal();
@@ -920,6 +1062,7 @@ function renderCustomerModal(){
               <div class="fg"><label>Email</label><input class="fc" id="c-email" value="${v('email')}" placeholder="Email"></div>
             </div>
             <div class="fg"><label>Address / main site</label><input class="fc" id="c-address" value="${v('address')}" placeholder="Address"></div>
+            <div class="fg"><label>Google contact</label><div class="list-lines"><div class="line">${c?.googleContactId?`Linked to ${esc(c.googleContactName||'Google contact')}${c.googleContactSyncedAt?` · synced ${new Date(c.googleContactSyncedAt).toLocaleDateString('en-GB')}`:''}`:'Not linked yet'}</div></div></div>
             <div class="fg"><label>Notes</label><textarea class="fc" id="c-notes" placeholder="Access notes, commercial notes, useful details…">${v('notes')}</textarea></div>
           </div>
           <div class="section stack">
@@ -936,6 +1079,8 @@ function renderCustomerModal(){
       </div>
       <div class="mft">
         ${c?`<button class="btn-del" data-a="delcust">Delete</button>`:''}
+        <button class="btn-soft" data-a="${c?'linkgoogle':'importgoogle'}">${c?'Link Google Contact':'Import Google Contact'}</button>
+        ${c?.googleContactId?`<button class="btn-soft" data-a="refreshgoogle">Refresh from Google</button>`:''}
         <div class="sp"></div>
         <button class="btn-ghost" data-a="closemod">Cancel</button>
         <button class="btn-primary" data-a="savecust">Save Customer</button>
@@ -1050,7 +1195,7 @@ function saveAsset(){
   if(S.editAssetId) DB.updateAsset(S.editAssetId,data); else DB.addAsset(data);
   S.assetModal=false; S.editAssetId=null; render();
 }
-function closeModal(){ S.jobModal=false; S.custModal=false; S.assetModal=false; S.editJobId=null; S.editCustId=null; S.editAssetId=null; render(); }
+function closeModal(){ S.jobModal=false; S.custModal=false; S.assetModal=false; S.contactsModal=false; S.editJobId=null; S.editCustId=null; S.editAssetId=null; render(); }
 
 function printJobSheet(jobId){
   const j=DB.jobs.find(x=>x.id===jobId || x.id===S.editJobId);
@@ -1092,8 +1237,21 @@ document.addEventListener('click',e=>{
     case 'editjob': S.jobModal=true; S.editJobId=el.dataset.jid; render(); break;
     case 'savejob': saveJob(); break;
     case 'deljob': if(confirm('Delete this job?')){ DB.deleteJob(S.editJobId); closeModal(); } break;
-    case 'addcust': S.custModal=true; S.editCustId=null; render(); break;
-    case 'editcust': S.custModal=true; S.editCustId=el.dataset.cid; render(); break;
+    case 'addcust': S.custModal=true; S.editCustId=null; S.contactsModal=false; render(); break;
+    case 'editcust': S.custModal=true; S.editCustId=el.dataset.cid; S.contactsModal=false; render(); break;
+    case 'importgoogle': openContactPicker('import'); break;
+    case 'linkgoogle': openContactPicker('link', S.editCustId); break;
+    case 'refreshgoogle': refreshCustomerFromGoogle(S.editCustId); break;
+    case 'reloadcontacts': ensureGoogleContactsLoaded(true); break;
+    case 'pickcontact':
+      if(S.contactPickerMode==='link') linkGoogleContactToCustomer(S.contactPickerTargetCustomerId, el.dataset.resource);
+      else importGoogleContact(el.dataset.resource);
+      break;
+    case 'closecontacts':
+      S.contactsModal=false;
+      if(S.contactPickerMode==='link' && S.contactPickerTargetCustomerId){ S.custModal=true; S.editCustId=S.contactPickerTargetCustomerId; }
+      render();
+      break;
     case 'savecust': saveCust(); break;
     case 'delcust': if(confirm('Delete this customer? Jobs and assets will remain but become unassigned.')){ DB.deleteCustomer(S.editCustId); closeModal(); } break;
     case 'addasset': S.assetModal=true; S.editAssetId=null; render(); break;
@@ -1135,6 +1293,7 @@ document.addEventListener('change',e=>{
 document.addEventListener('input',e=>{
   if(e.target.dataset.a==='searchcust'){ S.search=e.target.value; clearTimeout(window._st); window._st=setTimeout(render,100); }
   if(e.target.dataset.a==='searchasset'){ S.assetSearch=e.target.value; clearTimeout(window._st2); window._st2=setTimeout(render,100); }
+  if(e.target.dataset.a==='contactsearch'){ S.contactSearch=e.target.value; clearTimeout(window._st3); window._st3=setTimeout(render,100); }
 });
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){
