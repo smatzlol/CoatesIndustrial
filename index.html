@@ -251,7 +251,7 @@ textarea.fc{min-height:72px;resize:vertical}
 .leads-panel{min-width:0}
 .leads-map-panel{background:var(--c1);border:1px solid var(--bdr);border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
 .leads-map-head{display:flex;justify-content:space-between;align-items:flex-start;padding:12px 16px;border-bottom:1px solid var(--bdr);font-size:13px}
-.leads-map{height:340px;width:100%}
+.leads-map{height:540px;width:100%}
 .lead-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .lead-chipbar{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
 .lead-chip{padding:4px 10px;border-radius:20px;border:1px solid var(--bdr);background:var(--c2);color:var(--t1);font-size:12px;cursor:pointer}
@@ -779,7 +779,7 @@ const S={
   driveReady:false,driveSignedIn:false,driveSyncing:false,driveError:null,
   contactsModal:false,googleContacts:[],googleContactsLoaded:false,googleContactsLoading:false,googleContactsError:null,
   contactSearch:'',contactPickerMode:'import',contactPickerTargetCustomerId:null,
-  leadsSector:'powder coating',leadsRegion:'north-east',leadSearching:false,leadSearchError:null,leadResults:[],leadSavedSearch:'',leadMapReady:false
+  leadsSector:'powder coating',leadsRegion:'north-east',leadSearching:false,leadSearchError:null,leadResults:[],leadSavedSearch:'',leadMapReady:false,leadEmailIdx:null,leadEmailTemplate:0
 };
 
 const I={
@@ -842,6 +842,12 @@ function jobsForAsset(assetId){ return DB.jobs.filter(j=>(j.assetIds||[]).includ
 
 
 const LEAD_SECTORS=['powder coating','food manufacturing','steel fabrication','foundry','heat treatment','process plant','warehousing heating','automotive manufacturing','engineering services','packaging'];
+const EMAIL_TEMPLATES=[
+  {name:'Introduction',subject:'Engineering & Heating Services – Coates Industrial',body:`Dear [Name],\n\nI hope this message finds you well. I'm reaching out from Coates Industrial, specialists in industrial heating systems, plant maintenance, and engineering services across the UK.\n\nWe work with manufacturers, food processors, and fabricators to keep their plant running safely and efficiently — from planned preventative maintenance to emergency call-outs.\n\nI'd love to learn more about your operation and explore whether we could add value. Would you be open to a brief call this week?\n\nBest regards,\nCoates Industrial\nTel: 01234 567890`},
+  {name:'Free Quote',subject:'Free Service Assessment – Coates Industrial',body:`Dear [Name],\n\nI'm contacting you on behalf of Coates Industrial, industrial engineering and heating specialists.\n\nWe're currently offering free, no-obligation service assessments for businesses in your area. Whether you need a boiler service, plant inspection, or a full PPM contract, we can tailor a cost-effective solution to your needs.\n\nWould you be interested in a free quote? We can usually arrange a site visit within 48 hours.\n\nKind regards,\nCoates Industrial\nTel: 01234 567890`},
+  {name:'PPM Contract',subject:'Planned Preventative Maintenance – Coates Industrial',body:`Dear [Name],\n\nI wanted to introduce our Planned Preventative Maintenance (PPM) contracts at Coates Industrial.\n\nOur PPM programmes help manufacturers and process plants reduce unplanned downtime, extend asset life, and stay compliant with safety regulations — all at a predictable monthly cost.\n\nWe currently support clients in your sector and would be happy to put together a tailored programme for your site.\n\nWould you have 15 minutes for a call to discuss your current maintenance setup?\n\nBest regards,\nCoates Industrial\nTel: 01234 567890`},
+  {name:'Follow-Up',subject:'Following Up – Coates Industrial',body:`Dear [Name],\n\nI wanted to follow up on my previous message regarding Coates Industrial's engineering and heating services.\n\nI understand you're likely very busy, but I believe we could genuinely help your operation. We specialise in the kind of industrial plant your business relies on, and our team is experienced, responsive, and competitively priced.\n\nIf now isn't the right time, I'm happy to check back in a few weeks. Just let me know.\n\nMany thanks,\nCoates Industrial\nTel: 01234 567890`}
+];
 const LEAD_REGIONS={
   'north-east':{label:'North East', center:[54.9783,-1.6178], radius:50000, search:'North East England'},
   'yorkshire':{label:'Yorkshire', center:[53.8008,-1.5491], radius:50000, search:'Yorkshire England'},
@@ -929,6 +935,7 @@ function renderSavedLead(l){
 function renderLeads(){
   const region=LEAD_REGIONS[S.leadsRegion] || LEAD_REGIONS['north-east'];
   const saved=DB.leads.slice(0,8);
+  const statusMsg=S.leadSearching?'Searching…':S.leadResults.length?`${S.leadResults.length} result${S.leadResults.length!==1?'s':''} — click a pin to view details`:'Run a search to find businesses on the map';
   return `<div class="leads-layout">
     <div class="leads-side">
       <div class="leads-panel panel">
@@ -953,25 +960,8 @@ function renderLeads(){
       </div>
     </div>
     <div class="leads-map-panel">
-      <div class="leads-map-head"><div><strong>${esc(region.label)}</strong><div class="muted">Map uses OpenStreetMap. Business search uses Google Places.</div></div><div class="muted">${S.leadResults.length} result${S.leadResults.length!==1?'s':''}</div></div>
+      <div class="leads-map-head"><div><strong>${esc(region.label)}</strong><div class="muted">${esc(statusMsg)}</div></div></div>
       <div id="leadsMap" class="leads-map"></div>
-      <div class="panel-b">
-        ${S.leadSearching?`<div class="empty-state">Searching businesses…</div>`:(S.leadResults.length?S.leadResults.map((r,i)=>`<div class="lead-result">
-            <div class="lead-main">
-              <div class="lead-title">${esc(r.name)}</div>
-              <div class="lead-sub">
-                ${r.address?`<span>${esc(r.address)}</span>`:''}
-                <span>${esc(r.phone || 'No phone returned')}</span>
-                ${r.website?`<span>${esc(r.website)}</span>`:''}
-              </div>
-              <div class="lead-badge">${esc(S.leadsSector)}</div>
-            </div>
-            <div class="lead-actions">
-              <button class="btn-soft" data-a="savelead" data-index="${i}">Save lead</button>
-              ${r.mapsUri?`<a class="btn-ghost" href="${esc(r.mapsUri)}" target="_blank" rel="noopener">Open Maps</a>`:''}
-            </div>
-          </div>`).join(''):`<div class="empty-state">Run a lead search to list businesses on the map.</div>`)}
-      </div>
     </div>
   </div>`;
 }
@@ -997,13 +987,57 @@ function renderLeadMarkers(){
   const pts=S.leadResults.filter(r=>typeof r.lat==='number' && typeof r.lng==='number');
   if(!pts.length){ leadMap.setView(region.center,8); return; }
   pts.forEach((r,i)=>{
-    const m=L.marker([r.lat,r.lng]).addTo(leadMap).bindPopup(`<strong>${esc(r.name)}</strong><br>${esc(r.address||'')}<br>${esc(r.phone||'')}`);
+    const popup=`<div style="min-width:200px;font-family:inherit">
+      <div style="font-weight:600;font-size:14px;margin-bottom:4px">${esc(r.name)}</div>
+      ${r.address?`<div style="font-size:12px;color:#666;margin-bottom:2px">${esc(r.address)}</div>`:''}
+      ${r.phone?`<div style="font-size:12px;color:#666;margin-bottom:2px">${esc(r.phone)}</div>`:''}
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
+        <button onclick="handleLeadAction('savelead',${i})" style="padding:4px 10px;border:none;border-radius:6px;background:#2563eb;color:#fff;cursor:pointer;font-size:12px">Save lead</button>
+        <button onclick="handleLeadAction('openleademail',${i})" style="padding:4px 10px;border:1px solid #d1d5db;border-radius:6px;background:#fff;cursor:pointer;font-size:12px">Email</button>
+        ${r.website?`<a href="${esc(r.website)}" target="_blank" rel="noopener" style="padding:4px 10px;border:1px solid #d1d5db;border-radius:6px;background:#fff;color:#374151;text-decoration:none;font-size:12px">Website</a>`:''}
+        ${r.mapsUri?`<a href="${esc(r.mapsUri)}" target="_blank" rel="noopener" style="padding:4px 10px;border:1px solid #d1d5db;border-radius:6px;background:#fff;color:#374151;text-decoration:none;font-size:12px">Maps</a>`:''}
+      </div>
+    </div>`;
+    const m=L.marker([r.lat,r.lng]).addTo(leadMap).bindPopup(popup,{maxWidth:280});
     leadMarkers.push(m);
   });
   const group=L.featureGroup(leadMarkers);
   leadMap.fitBounds(group.getBounds().pad(0.25));
 }
 
+function handleLeadAction(action,idx){
+  if(action==='savelead'){ saveLeadFromResult(idx); }
+  else if(action==='openleademail'){ S.leadEmailIdx=idx; S.leadEmailTemplate=0; render(); setTimeout(initLeadsMap,40); }
+}
+function renderLeadEmailModal(){
+  const r=S.leadResults[S.leadEmailIdx];
+  if(!r) return `<div class="overlay on"><div class="modal"><button class="modal-close" data-a="closeleademail">✕</button></div></div>`;
+  const tpl=EMAIL_TEMPLATES[S.leadEmailTemplate];
+  const name=r.name||'';
+  const body=tpl.body.replace(/\[Name\]/g,name);
+  const mailto=r.email?`mailto:${encodeURIComponent(r.email)}?subject=${encodeURIComponent(tpl.subject)}&body=${encodeURIComponent(body)}`
+    :`mailto:?subject=${encodeURIComponent(tpl.subject)}&body=${encodeURIComponent(body)}`;
+  return `<div class="overlay on">
+    <div class="modal" style="max-width:540px">
+      <button class="modal-close" data-a="closeleademail">✕</button>
+      <h3 style="margin:0 0 4px">Email ${esc(name)}</h3>
+      <p class="muted" style="margin:0 0 14px;font-size:13px">${r.phone?esc(r.phone):''}</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+        ${EMAIL_TEMPLATES.map((t,i)=>`<button class="btn-soft${i===S.leadEmailTemplate?' btn-primary':''}" data-a="selectemailtemplate" data-tidx="${i}">${esc(t.name)}</button>`).join('')}
+      </div>
+      <div style="background:var(--bg2,#f9fafb);border:1px solid var(--bdr);border-radius:8px;padding:14px;margin-bottom:14px">
+        <div style="font-size:12px;color:#666;margin-bottom:4px">Subject</div>
+        <div style="font-size:13px;font-weight:600;margin-bottom:10px">${esc(tpl.subject)}</div>
+        <div style="font-size:12px;color:#666;margin-bottom:4px">Body</div>
+        <pre style="font-size:12px;white-space:pre-wrap;margin:0;font-family:inherit">${esc(body)}</pre>
+      </div>
+      <div style="display:flex;gap:10px">
+        <a class="btn-primary" href="${mailto}" style="text-decoration:none">Open in email client</a>
+        <button class="btn-ghost" data-a="closeleademail">Cancel</button>
+      </div>
+    </div>
+  </div>`;
+}
 function render(){
   document.getElementById('app').innerHTML=
     renderHeader()+
@@ -1293,6 +1327,7 @@ function renderAssets(){
     </div>`;
 }
 function renderOverlay(){
+  if(S.leadEmailIdx!==null) return renderLeadEmailModal();
   if(S.contactsModal) return renderContactsModal();
   if(S.jobModal) return renderJobModal();
   if(S.custModal) return renderCustomerModal();
@@ -1632,6 +1667,9 @@ document.addEventListener('click',e=>{
       break;
     case 'savelead': saveLeadFromResult(Number(el.dataset.index)); break;
     case 'leadtocustomer': convertLeadToCustomer(el.dataset.lid); break;
+    case 'openleademail': S.leadEmailIdx=Number(el.dataset.index); S.leadEmailTemplate=0; render(); setTimeout(initLeadsMap,40); break;
+    case 'closeleademail': S.leadEmailIdx=null; render(); setTimeout(initLeadsMap,40); break;
+    case 'selectemailtemplate': S.leadEmailTemplate=Number(el.dataset.tidx); render(); setTimeout(initLeadsMap,40); break;
   }
 });
 document.addEventListener('change',e=>{
