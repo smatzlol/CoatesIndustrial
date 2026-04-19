@@ -989,7 +989,12 @@ function normalizeLeadEmailTemplates(list){
 function leadEmailTemplates(){ return Array.isArray(DB.leadEmailTemplates) && DB.leadEmailTemplates.length ? DB.leadEmailTemplates : normalizeLeadEmailTemplates([]); }
 function activeLeadEmailTemplateIndex(){ return clamp(Number(S.leadEmailTemplate)||0,0,Math.max(0,leadEmailTemplates().length-1)); }
 function activeLeadEmailTemplate(){ return leadEmailTemplates()[activeLeadEmailTemplateIndex()] || null; }
-function leadRegionLabel(regionKey){ return LEAD_REGIONS[regionKey]?.label || regionKey || ''; }
+function leadRegionLabel(regionKey){
+  const label=LEAD_REGIONS[regionKey]?.label || regionKey || '';
+  if(label==='North East') return 'the North East';
+  if(label==='North West') return 'the North West';
+  return label;
+}
 function personalizeLeadEmail(text,lead){
   const source=String(text||'');
   const replacements={
@@ -1120,20 +1125,12 @@ function convertLeadToCustomer(id){
   S.view='customers'; S.editCustId=customer.id; S.custModal=true; render();
 }
 function renderSavedLeadRow(l){
-  const linkedCustomer = l.customerId ? DB.getCustomer(l.customerId) : null;
-  const isCustomer = l.status === 'customer' && !!linkedCustomer;
-
+  const linkedCustomer=l.customerId ? DB.getCustomer(l.customerId) : null;
+  const isCustomer=l.status==='customer' && !!linkedCustomer;
   return `<tr style="border-bottom:1px solid var(--bdr)">
-    <td style="padding:8px 10px;font-weight:600;font-size:13px;min-width:140px">
-      ${esc(l.name)}
-      ${l.website ? `<div style="font-size:11px;color:var(--t2);font-weight:400;margin-top:2px">${esc(l.website.replace(/^https?:\/\//,''))}</div>` : ''}
-    </td>
-    <td style="padding:8px 10px;font-size:12px;color:var(--t1);white-space:nowrap">
-      ${esc(LEAD_REGIONS[l.region]?.label||l.region||'')}
-    </td>
-    <td style="padding:8px 10px">
-      <span class="pill ${l.status==='customer'?'p-completed':'p-approved'}">${esc((l.status||'new').replace('-',' '))}</span>
-    </td>
+    <td style="padding:8px 10px;font-weight:600;font-size:13px;min-width:140px">${esc(l.name)}${l.website?`<div style="font-size:11px;color:var(--t2);font-weight:400;margin-top:2px">${esc(l.website.replace(/^https?:\/\//,''))}</div>`:''}</td>
+    <td style="padding:8px 10px;font-size:12px;color:var(--t1);white-space:nowrap">${esc(LEAD_REGIONS[l.region]?.label||l.region||'')}</td>
+    <td style="padding:8px 10px"><span class="pill ${l.status==='customer'?'p-completed':'p-approved'}">${esc((l.status||'new').replace('-',' '))}</span></td>
     <td style="padding:8px 10px">
       <div style="display:flex;gap:5px;flex-wrap:wrap">
         ${isCustomer
@@ -1991,7 +1988,7 @@ function renderAssets(){
     </div>`;
 }
 function renderOverlay(){
-  if(S.contactsModal) return renderContactsModal();
+    if(S.contactsModal) return renderContactsModal();
   if(S.jobModal) return renderJobModal();
   if(S.custModal) return renderCustomerModal();
   if(S.assetModal) return renderAssetModal();
@@ -2197,7 +2194,31 @@ function saveJob(){
   if(S.editJobId) DB.updateJob(S.editJobId,data); else DB.addJob(data);
   S.jobModal=false; S.editJobId=null; S.selDate=date; S.year=Number(date.slice(0,4)); render();
 }
+async function saveCust(){
+  const name=document.getElementById('c-name')?.value.trim();
+  if(!name){ document.getElementById('c-name').focus(); return; }
+  const data={
+    name,
+    company:document.getElementById('c-company')?.value.trim()||'',
+    phone:document.getElementById('c-phone')?.value.trim()||'',
+    email:document.getElementById('c-email')?.value.trim()||'',
+    address:document.getElementById('c-address')?.value.trim()||'',
+    notes:document.getElementById('c-notes')?.value.trim()||'',
+    color:document.getElementById('c-color')?.value||nextCustColor()
+  };
+  let customerId=S.editCustId;
+  if(customerId) DB.updateCustomer(customerId,data); else customerId=DB.addCustomer(data).id;
 
+  try{
+    const customer=DB.getCustomer(customerId);
+    if(customer?.googleContactId) await updateGoogleContactFromCustomer(customerId);
+  }catch(e){
+    console.error(e);
+    alert('Customer saved in the app, but Google Contacts update failed. Sign out and back in if permissions changed, then try again.');
+  }
+
+  S.custModal=false; S.editCustId=null; render();
+}
 function saveAsset(){
   const name=document.getElementById('a-name')?.value.trim();
   if(!name){ document.getElementById('a-name').focus(); return; }
@@ -2344,25 +2365,25 @@ document.addEventListener('click',e=>{
       break;
     case 'savelead': saveLeadFromResult(Number(el.dataset.index)); break;
     case 'leadtocustomer': convertLeadToCustomer(el.dataset.lid); break;
-   case 'viewleadcustomer': {
-  const customer = DB.getCustomer(el.dataset.cid);
-  if(!customer){
-    const lead = DB.leads.find(l => l.customerId === el.dataset.cid);
-    if(lead){
-      DB.updateLead(lead.id, { status:'new', customerId:null });
-      alert('That linked customer no longer exists, so this lead has been switched back to a normal lead.');
+    case 'viewleadcustomer': {
+      const customer=DB.getCustomer(el.dataset.cid);
+      if(!customer){
+        const lead=DB.leads.find(l=>l.customerId===el.dataset.cid);
+        if(lead){
+          DB.updateLead(lead.id,{status:'new',customerId:null});
+          alert('That linked customer no longer exists, so this lead has been switched back to a normal lead.');
+          render();
+        }else{
+          alert('Linked customer not found for this lead.');
+        }
+        break;
+      }
+      S.view='customers';
+      S.editCustId=customer.id;
+      S.custModal=true;
       render();
-    }else{
-      alert('Linked customer not found for this lead.');
+      break;
     }
-    break;
-  }
-  S.view='customers';
-  S.editCustId=customer.id;
-  S.custModal=true;
-  render();
-  break;
-}
     case 'deletelead': if(confirm('Delete this saved lead?')){ DB.deleteLead(el.dataset.lid); render(); } break;
     case 'openleademail':
       selectLeadForEmailStudio('result', Number(el.dataset.index));
@@ -2370,7 +2391,12 @@ document.addEventListener('click',e=>{
     case 'opensavedemail':
       selectLeadForEmailStudio('saved', el.dataset.lid);
       break;
-    case 'closeleademail': S.leadEmailIdx=null; S.leadEmailSavedId=null; render(); setTimeout(initLeadsMap,40); break;
+    case 'closeleademail':
+      S.leadEmailIdx=null;
+      S.leadEmailSavedId=null;
+      render();
+      setTimeout(initLeadsMap,40);
+      break;
     case 'sendgmailemail': {
       const r=S.leadEmailSavedId ? DB.leads.find(l=>l.id===S.leadEmailSavedId) : S.leadResults[S.leadEmailIdx];
       if(r){
