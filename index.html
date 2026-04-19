@@ -461,7 +461,7 @@ function normalizeLeadMapLayout(layout,wrapWidth){
 }
 
 const DB={
-  customers:[], jobs:[], assets:[], leads:[], leadEmailTemplates:[], alertsDismissed:{},
+  customers:[], jobs:[], assets:[], leads:[], leadEmailTemplates:[], alertsDismissed:{}, emailLog:[],
   load(){
     try{
       const raw=localStorage.getItem('sch1');
@@ -480,16 +480,18 @@ const DB={
         ...j
       }));
       this.assets=(d.assets||[]).map(a=>({status:a.status||'active',...a}));
-      const validLeadStatuses=['new','customer'];
+      const validLeadStatuses=['new','contacted','interested','quoted','won','lost','customer'];
       this.leads=(d.leads||[]).map(l=>({source:'Places API (New)',...l,status:validLeadStatuses.includes(l.status)?l.status:'new'}));
       this.leadEmailTemplates=normalizeLeadEmailTemplates(d.leadEmailTemplates);
+      this.emailLog=(d.emailLog||[]);
     }catch(e){}
   },
   save(){
-    const payload=JSON.stringify({customers:this.customers,jobs:this.jobs,assets:this.assets,leads:this.leads,leadEmailTemplates:this.leadEmailTemplates});
+    const payload=JSON.stringify({customers:this.customers,jobs:this.jobs,assets:this.assets,leads:this.leads,leadEmailTemplates:this.leadEmailTemplates,emailLog:this.emailLog});
     localStorage.setItem('sch1',payload);
     driveSaveDebounced(payload);
   },
+  addEmailLogEntry(entry){ this.emailLog.unshift({id:uid(),sentAt:Date.now(),...entry}); if(this.emailLog.length>200) this.emailLog=this.emailLog.slice(0,200); this.save(); },
   getCustomer(id){ return this.customers.find(x=>x.id===id)||null; },
   getAsset(id){ return this.assets.find(x=>x.id===id)||null; },
   jobsForDate(ds){ return this.jobs.filter(j=>j.date===ds).sort((a,b)=>(a.startTime||'').localeCompare(b.startTime||'')); },
@@ -600,7 +602,7 @@ async function driveLoad(){
       const r=await gapi.client.drive.files.get({ fileId:_driveFileId, alt:'media' });
       _applyDriveData(r.body);
     }else{
-      await _driveWrite(JSON.stringify({customers:DB.customers,jobs:DB.jobs,assets:DB.assets,leads:DB.leads,leadEmailTemplates:DB.leadEmailTemplates}));
+      await _driveWrite(JSON.stringify({customers:DB.customers,jobs:DB.jobs,assets:DB.assets,leads:DB.leads,leadEmailTemplates:DB.leadEmailTemplates,emailLog:DB.emailLog}));
     }
   }catch(e){ S.driveError='Load failed'; }
 }
@@ -890,7 +892,10 @@ const S={
   driveReady:false,driveSignedIn:false,driveSyncing:false,driveError:null,
   contactsModal:false,googleContacts:[],googleContactsLoaded:false,googleContactsLoading:false,googleContactsError:null,
   contactSearch:'',contactPickerMode:'import',contactPickerTargetCustomerId:null,
-  leadsSector:'powder coating',leadsRegion:'north-east',leadSearching:false,leadSearchError:null,leadResults:[],leadSavedSearch:'',leadMapReady:false,leadMapLayout:loadLeadMapLayout(),leadSectionLayout:loadLeadSectionLayout(),leadEmailIdx:null,leadEmailSavedId:null,leadEmailTemplate:0,leadEmailTargetType:null,leadEmailTargetId:null,leadSort:'date',leadGroup:'none',viewScroll:{}
+  leadsSector:'powder coating',leadsRegion:'north-east',leadSearching:false,leadSearchError:null,leadResults:[],leadSavedSearch:'',leadMapReady:false,leadMapLayout:loadLeadMapLayout(),leadSectionLayout:loadLeadSectionLayout(),leadEmailIdx:null,leadEmailSavedId:null,leadEmailTemplate:0,leadEmailTargetType:null,leadEmailTargetId:null,leadSort:'date',leadGroup:'none',viewScroll:{},
+  leadEmailPreview:'personalized',leadBulkSelected:new Set(),
+  custEmailModal:false,custEmailId:null,
+  assetFilterCustId:null
 };
 
 const I={
@@ -953,6 +958,7 @@ function jobsForAsset(assetId){ return DB.jobs.filter(j=>(j.assetIds||[]).includ
 
 
 const LEAD_SECTORS=['powder coating','food manufacturing','steel fabrication','foundry','heat treatment','process plant','warehousing heating','automotive manufacturing','engineering services','packaging'];
+const LEAD_STAGES=['new','contacted','interested','quoted','won','lost'];
 const EMAIL_TEMPLATES=[
   {name:'Introduction',subject:'Engineering & Heating Services – Coates Industrial',body:`Dear [Name],\n\nI hope this message finds you well. I'm reaching out from Coates Industrial, specialists in industrial heating systems, plant maintenance, and engineering services across the UK.\n\nWe work with manufacturers, food processors, and fabricators to keep their plant running safely and efficiently — from planned preventative maintenance to emergency call-outs.\n\nI'd love to learn more about your operation and explore whether we could add value. Would you be open to a brief call this week?\n\nBest regards,\nCoates Industrial\nTel: 01234 567890`},
   {name:'Free Quote',subject:'Free Service Assessment – Coates Industrial',body:`Dear [Name],\n\nI'm contacting you on behalf of Coates Industrial, industrial engineering and heating specialists.\n\nWe're currently offering free, no-obligation service assessments for businesses in your area. Whether you need a boiler service, plant inspection, or a full PPM contract, we can tailor a cost-effective solution to your needs.\n\nWould you be interested in a free quote? We can usually arrange a site visit within 48 hours.\n\nKind regards,\nCoates Industrial\nTel: 01234 567890`},
@@ -1020,11 +1026,15 @@ function selectedLeadForEmailStudio(){
   }
   return null;
 }
+function resolveLeadEmail(lead){
+  return lead?.email || (lead?.customerId ? DB.getCustomer(lead.customerId)?.email : '') || '';
+}
+function timeAgo(ts){ const diff=Date.now()-ts; const d=Math.floor(diff/86400000); if(d===0) return 'today'; if(d===1) return 'yesterday'; return d+' days ago'; }
 function leadEmailMailtoFor(lead){
   const tpl=activeLeadEmailTemplate();
   const subject=personalizeLeadEmail(tpl?.subject||'',lead);
   const body=personalizeLeadEmail(tpl?.body||'',lead);
-  const email=leadEmailAddress(lead);
+  const email=resolveLeadEmail(lead);
   const qs=`subject=${encodeURIComponent(subject)}&amp;body=${encodeURIComponent(body)}`;
   return `mailto:${email}?${qs}`;
 }
@@ -1127,16 +1137,34 @@ function convertLeadToCustomer(id){
 function renderSavedLeadRow(l){
   const linkedCustomer=l.customerId ? DB.getCustomer(l.customerId) : null;
   const isCustomer=l.status==='customer' && !!linkedCustomer;
+  const lastLog=DB.emailLog.find(e=>e.leadId===l.id);
   return `<tr style="border-bottom:1px solid var(--bdr)">
-    <td style="padding:8px 10px;font-weight:600;font-size:13px;min-width:140px">${esc(l.name)}${l.website?`<div style="font-size:11px;color:var(--t2);font-weight:400;margin-top:2px">${esc(l.website.replace(/^https?:\/\//,''))}</div>`:''}</td>
+    <td style="padding:6px 10px;width:28px">
+      <input type="checkbox" data-a="toggleleadbulk" data-lid="${l.id}" ${S.leadBulkSelected.has(l.id)?'checked':''}>
+    </td>
+    <td style="padding:8px 10px;font-weight:600;font-size:13px;min-width:160px">
+      ${esc(l.name)}
+      ${l.website?`<div style="font-size:11px;color:var(--t2);font-weight:400;margin-top:2px">${esc(l.website.replace(/^https?:\/\//,''))}</div>`:''}
+      ${lastLog?`<div style="font-size:10px;color:var(--green);margin-top:2px">Contacted ${timeAgo(lastLog.sentAt)}</div>`:''}
+      <div style="margin-top:4px"><input class="fc" style="font-size:11px;padding:3px 6px;font-weight:400" data-a="updateleadnotes" data-lid="${l.id}" value="${esc(l.notes||'')}" placeholder="Add notes..."></div>
+    </td>
     <td style="padding:8px 10px;font-size:12px;color:var(--t1);white-space:nowrap">${esc(LEAD_REGIONS[l.region]?.label||l.region||'')}</td>
-    <td style="padding:8px 10px"><span class="pill ${l.status==='customer'?'p-completed':'p-approved'}">${esc((l.status||'new').replace('-',' '))}</span></td>
+    <td style="padding:6px 10px">
+      <select class="fc" style="padding:3px 6px;font-size:11px;width:auto" data-a="updateleadstage" data-lid="${l.id}">
+        ${[...LEAD_STAGES,...(l.status==='customer'?['customer']:[])].map(s=>`<option value="${s}" ${l.status===s?'selected':''}>${s.charAt(0).toUpperCase()+s.slice(1)}</option>`).join('')}
+      </select>
+    </td>
     <td style="padding:8px 10px">
+      ${(()=>{ const e=resolveLeadEmail(l); return e ? `<span class="pill p-completed" style="font-size:10px" title="${esc(e)}">✓ Present</span>` : `<span class="pill p-cancelled" style="font-size:10px">✗ Missing</span>`; })()}
+    </td>
+    <td style="padding:8px 10px">
+      <div style="margin-bottom:5px"><input class="fc" style="font-size:11px;padding:3px 6px" data-a="updateleademail" data-lid="${l.id}" value="${esc(l.email||resolveLeadEmail(l))}" placeholder="Email address..."></div>
       <div style="display:flex;gap:5px;flex-wrap:wrap">
         ${isCustomer
           ? `<button class="btn-soft" style="padding:4px 8px;font-size:11px" data-a="viewleadcustomer" data-cid="${linkedCustomer.id}">View/Edit customer</button>`
           : `<button class="btn-soft" style="padding:4px 8px;font-size:11px" data-a="leadtocustomer" data-lid="${l.id}">To customer</button>`}
         <button class="btn-soft" style="padding:4px 8px;font-size:11px" data-a="opensavedemail" data-lid="${l.id}">Email</button>
+        <button class="btn-soft" style="padding:4px 8px;font-size:11px;${l.followUpDate&&l.followUpDate<todayStr()?'color:var(--amber)':''}" data-a="setleadfollowup" data-lid="${l.id}" title="${l.followUpDate?'Follow-up: '+l.followUpDate:'Set follow-up'}">${l.followUpDate?'⏰ '+shortDate(l.followUpDate):'Follow-up'}</button>
         ${l.website ? `<a class="btn-soft" style="padding:4px 8px;font-size:11px;text-decoration:none" href="${esc(l.website)}" target="_blank" rel="noopener">Website</a>` : ''}
         <button class="btn-del" style="padding:4px 8px;font-size:11px" data-a="deletelead" data-lid="${l.id}">Delete</button>
       </div>
@@ -1182,6 +1210,7 @@ function renderLeadEmailStudio(){
           <span class="tag">${esc(previewLead.sector||S.leadsSector)}</span>
           ${targetLead?`<button class="btn-ghost" type="button" data-a="clearleademailtarget">Clear lead</button>`:''}
           ${targetLead?`<button class="btn-primary" type="button" data-a="sendgmailstudio">Send via Gmail</button>`:''}
+          <button class="btn-soft" type="button" data-a="sendgmailtest">Send test to me</button>
           <a class="${targetLead?'btn-soft':'btn-primary'}" href="${mailto}" style="text-decoration:none">Open in email client</a>
         </div>
       </div>
@@ -1230,10 +1259,37 @@ function renderLeadEmailStudio(){
             </div>
             <span class="tag">${esc(previewLead.sector||S.leadsSector)}</span>
           </div>
-          <div class="line" style="margin-top:10px"><strong>Subject:</strong><br>${esc(previewSubject||'Add a subject line to preview it here')}</div>
-          <div class="line" style="margin-top:8px;white-space:pre-wrap">${esc(previewBody||'Add an email body to preview it here')}</div>
+          <div style="display:flex;gap:6px;margin-bottom:8px;margin-top:10px">
+            <button class="btn-soft${S.leadEmailPreview==='personalized'?' btn-primary':''}" style="padding:3px 8px;font-size:11px" data-a="emailpreviewmode" data-mode="personalized">Personalised</button>
+            <button class="btn-soft${S.leadEmailPreview==='tokens'?' btn-primary':''}" style="padding:3px 8px;font-size:11px" data-a="emailpreviewmode" data-mode="tokens">Raw tokens</button>
+          </div>
+          <div class="line" style="margin-top:0"><strong>Subject:</strong><br>${esc((S.leadEmailPreview==='tokens'?(active?.subject||''):previewSubject)||'Add a subject line to preview it here')}</div>
+          <div class="line" style="margin-top:8px;white-space:pre-wrap">${esc((S.leadEmailPreview==='tokens'?(active?.body||''):previewBody)||'Add an email body to preview it here')}</div>
         </div>
       </div>
+    </div>
+    <div class="section" style="margin-top:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div style="font-weight:800">Sent log</div>
+        <span class="muted">${DB.emailLog.length} sent</span>
+      </div>
+      ${DB.emailLog.length===0
+        ? `<div class="muted" style="font-size:12px">No emails sent yet via Gmail</div>`
+        : `<div style="max-height:200px;overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead><tr style="background:var(--c2)">
+              <th style="padding:5px 8px;text-align:left;color:var(--t2);font-weight:700;border-bottom:1px solid var(--bdr)">Lead</th>
+              <th style="padding:5px 8px;text-align:left;color:var(--t2);font-weight:700;border-bottom:1px solid var(--bdr)">To</th>
+              <th style="padding:5px 8px;text-align:left;color:var(--t2);font-weight:700;border-bottom:1px solid var(--bdr)">Template</th>
+              <th style="padding:5px 8px;text-align:left;color:var(--t2);font-weight:700;border-bottom:1px solid var(--bdr)">Sent</th>
+            </tr></thead>
+            <tbody>${DB.emailLog.slice(0,50).map(e=>`<tr style="border-bottom:1px solid var(--bdr)">
+              <td style="padding:5px 8px">${esc(e.leadName||'')}</td>
+              <td style="padding:5px 8px;color:var(--t2)">${esc(e.to||'')}</td>
+              <td style="padding:5px 8px;color:var(--t2)">${esc(e.templateName||'')}</td>
+              <td style="padding:5px 8px;color:var(--t2);white-space:nowrap">${new Date(e.sentAt).toLocaleDateString('en-GB')} ${new Date(e.sentAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</td>
+            </tr>`).join('')}</tbody>
+          </table></div>`
+      }
     </div>
   </div>`;
 }
@@ -1255,9 +1311,11 @@ function renderLeadsBoard(){
         </div>
         <table style="width:100%;border-collapse:collapse">
           <thead><tr style="background:var(--c1)">
+            <th style="padding:6px 12px;width:28px;border-bottom:1px solid var(--bdr)"><input type="checkbox" data-a="toggleleadbulkall"></th>
             <th style="padding:6px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--t2);border-bottom:1px solid var(--bdr)">Name</th>
             <th style="padding:6px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--t2);border-bottom:1px solid var(--bdr)">Region</th>
-            <th style="padding:6px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--t2);border-bottom:1px solid var(--bdr)">Status</th>
+            <th style="padding:6px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--t2);border-bottom:1px solid var(--bdr)">Stage</th>
+            <th style="padding:6px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--t2);border-bottom:1px solid var(--bdr)">Email</th>
             <th style="padding:6px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--t2);border-bottom:1px solid var(--bdr)">Actions</th>
           </tr></thead>
           <tbody>${items.map(renderSavedLeadRow).join('')}</tbody>
@@ -1297,7 +1355,11 @@ function renderLeadsBoard(){
       <option value="date" ${S.leadSort==='date'?'selected':''}>Newest first</option>
       <option value="name" ${S.leadSort==='name'?'selected':''}>Name A-Z</option>
       <option value="region" ${S.leadSort==='region'?'selected':''}>Region</option>
-    </select>`;
+    </select>
+    ${S.leadBulkSelected.size>0
+      ? `<button class="btn-primary" style="padding:5px 10px;font-size:12px" data-a="bulkemailleads">${I.mail} Email ${S.leadBulkSelected.size} selected</button>
+         <button class="btn-ghost" style="padding:5px 10px;font-size:12px" data-a="clearbulkselect">Clear</button>`
+      : ''}`;
   const sections={
     finder:renderLeadSectionCard('finder','Lead finder','Search UK sectors and save prospects',finderBody),
     templates:renderLeadSectionCard('templates','Email studio','Build reusable outreach emails and quick-start ideas',renderLeadEmailStudio(),`<span class="muted">${leadEmailTemplates().length} templates</span>`),
@@ -1557,7 +1619,7 @@ function handleLeadAction(action,idx){
   if(action==='savelead'){ saveLeadFromResult(idx); }
   else if(action==='openleademail'){ selectLeadForEmailStudio('result',idx); }
 }
-async function sendViaGmail(toEmail, subject, body){
+async function sendViaGmail(toEmail, subject, body, lead=null){
   const token=gapi.client.getToken()?.access_token;
   if(!token){ alert('Please sign in with Google first.'); return false; }
   if(!toEmail){ alert('This lead has no email address.'); return false; }
@@ -1582,6 +1644,7 @@ async function sendViaGmail(toEmail, subject, body){
       alert('Gmail send failed: '+(err?.error?.message||resp.status));
       return false;
     }
+    DB.addEmailLogEntry({leadId:lead?.id||null, leadName:lead?.name||toEmail, to:toEmail, subject, templateName:activeLeadEmailTemplate()?.name||''});
     return true;
   } catch(e){
     alert('Gmail send error: '+e.message);
@@ -1604,7 +1667,7 @@ function renderLeadEmailModal(){
   const name=r.name||'';
   const subject=personalizeLeadEmail(tpl?.subject||'',r);
   const body=personalizeLeadEmail(tpl?.body||'',r);
-  const emailTo=leadEmailAddress(r);
+  const emailTo=resolveLeadEmail(r);
   const mailto=`mailto:${emailTo}?subject=${encodeURIComponent(subject)}&amp;body=${encodeURIComponent(body)}`;
   return `<div class="overlay on">
     <div class="modal" style="max-width:540px">
@@ -1941,7 +2004,8 @@ function renderCustomers(){
         const col=c.color||'#7161ef';
         const siteAssets=assetsForCustomer(c.id).length;
         const jobs=DB.jobs.filter(j=>j.customerId===c.id).length;
-        return `<div class="ccard" data-a="editcust" data-cid="${c.id}">
+        const custAssets=assetsForCustomer(c.id);
+        return `<div class="ccard" data-cid="${c.id}">
           <div class="ctop">
             <div class="cava" style="background:${col}26;color:${col}">${esc(initials(c.name))}</div>
             <div><div class="cname">${esc(c.name)}</div>${c.company?`<div class="cco">${esc(c.company)}</div>`:''}</div>
@@ -1953,15 +2017,31 @@ function renderCustomers(){
             <div class="cdrow">${jobs} jobs · ${siteAssets} assets</div>
             ${c.googleContactId?`<div class="cdrow">Linked to Google Contacts</div>`:''}
           </div>
+          ${custAssets.length?`<div style="border-top:1px solid var(--brd);padding:8px 14px 4px;display:flex;flex-direction:column;gap:4px">
+            ${custAssets.map(a=>`<div style="font-size:12px;color:var(--fg2);display:flex;justify-content:space-between;align-items:center">
+              <span>${esc(a.name||a.makeModel||'Unnamed asset')}</span>
+              <span style="font-size:11px;color:var(--muted)">${a.serial?esc(a.serial):''}</span>
+            </div>`).join('')}
+          </div>`:''}
+          <div style="border-top:1px solid var(--brd);padding:8px 10px;display:flex;gap:6px">
+            <button class="btn-soft" style="flex:1;font-size:12px;padding:5px 8px" data-a="editcust" data-cid="${c.id}">${I.asset} Edit</button>
+            <button class="btn-soft" style="flex:1;font-size:12px;padding:5px 8px" data-a="emailcust" data-cid="${c.id}">${I.mail} Email</button>
+            <button class="btn-soft" style="flex:1;font-size:12px;padding:5px 8px" data-a="viewcustassets" data-cid="${c.id}">${I.search} Assets${siteAssets?` (${siteAssets})`:''}</button>
+          </div>
         </div>`;
       }).join(''):`<div class="empty-state" style="grid-column:1/-1">No customers yet</div>`}
     </div>`;
 }
 function renderAssets(){
   const q=S.assetSearch.trim().toLowerCase();
-  const list=DB.assets.filter(a=>!q || [a.name,a.makeModel,a.serial,a.siteName,a.notes].join(' ').toLowerCase().includes(q));
+  const filterCust=S.assetFilterCustId?DB.getCustomer(S.assetFilterCustId):null;
+  const list=DB.assets.filter(a=>{
+    if(S.assetFilterCustId && a.customerId!==S.assetFilterCustId) return false;
+    return !q || [a.name,a.makeModel,a.serial,a.siteName,a.notes].join(' ').toLowerCase().includes(q);
+  });
   return `<div class="filters">
       <div class="sbox">${I.search}<input id="searchAssets" data-a="searchasset" placeholder="Search assets…" value="${esc(S.assetSearch)}"></div>
+      ${filterCust?`<span class="pill p-inprogress" style="font-size:12px">${esc(filterCust.name)}</span><button class="btn-ghost" data-a="clearassetfilter" style="font-size:12px">✕ Clear filter</button>`:''}
       <button class="btn-primary" data-a="addasset">${I.plus} Add Asset</button>
     </div>
     <div class="asset-grid">
@@ -1990,6 +2070,7 @@ function renderAssets(){
 function renderOverlay(){
     if(S.contactsModal) return renderContactsModal();
   if(S.jobModal) return renderJobModal();
+  if(S.custEmailModal) return renderCustEmailModal();
   if(S.custModal) return renderCustomerModal();
   if(S.assetModal) return renderAssetModal();
   return `<div class="overlay"></div>`;
@@ -2063,6 +2144,27 @@ function renderJobModal(){
         <div class="sp"></div>
         <button class="btn-ghost" data-a="closemod">Cancel</button>
         <button class="btn-primary" data-a="savejob">Save Job</button>
+      </div>
+    </div>
+  </div>`;
+}
+function renderCustEmailModal(){
+  const c=DB.customers.find(x=>x.id===S.custEmailId);
+  if(!c) return '';
+  return `<div class="overlay on">
+    <div class="modal" style="max-width:480px">
+      <div class="mhd"><div class="mtitle">${I.mail} Email ${esc(c.name)}</div><button class="btn-icon" data-a="closecustemailmod">${I.x}</button></div>
+      <div class="mbody">
+        <div class="stack">
+          <div class="fg"><label>To</label><input class="fc" id="cem-to" value="${esc(c.email)}" placeholder="email@example.com"></div>
+          <div class="fg"><label>Subject</label><input class="fc" id="cem-subject" placeholder="Subject…"></div>
+          <div class="fg"><label>Message</label><textarea class="fc" id="cem-body" style="min-height:120px" placeholder="Write your message…"></textarea></div>
+        </div>
+      </div>
+      <div class="mft">
+        <div class="sp"></div>
+        <button class="btn-ghost" data-a="closecustemailmod">Cancel</button>
+        <button class="btn-primary" data-a="sendgmailcust">${I.mail} Send via Gmail</button>
       </div>
     </div>
   </div>`;
@@ -2280,6 +2382,10 @@ document.addEventListener('click',e=>{
     case 'deljob': if(confirm('Delete this job?')){ DB.deleteJob(S.editJobId); closeModal(); } break;
     case 'addcust': S.custModal=true; S.editCustId=null; S.contactsModal=false; render(); break;
     case 'editcust': S.custModal=true; S.editCustId=el.dataset.cid; S.contactsModal=false; render(); break;
+    case 'emailcust': { const ec=DB.customers.find(x=>x.id===el.dataset.cid); if(!ec?.email){ alert('This customer has no email address. Add one via Edit.'); break; } S.custEmailModal=true; S.custEmailId=el.dataset.cid; render(); break; }
+    case 'closecustemailmod': S.custEmailModal=false; S.custEmailId=null; render(); break;
+    case 'sendgmailcust': { const toEl=document.getElementById('cem-to'); const subEl=document.getElementById('cem-subject'); const bodyEl=document.getElementById('cem-body'); const to=toEl?.value.trim(); const subject=subEl?.value.trim(); const body=bodyEl?.value.trim(); if(!to||!subject||!body){ alert('Please fill in To, Subject and Message.'); break; } const ec2=DB.customers.find(x=>x.id===S.custEmailId); (async()=>{ const ok=await sendViaGmail(to,subject,body,{id:ec2?.id,name:ec2?.name||to}); if(ok){S.custEmailModal=false;S.custEmailId=null;render();} })(); break; }
+    case 'viewcustassets': { S.view='assets'; S.assetFilterCustId=el.dataset.cid; S.assetSearch=''; render(); break; }
     case 'importgoogle': openContactPicker('import'); break;
     case 'linkgoogle': openContactPicker('link', S.editCustId); break;
     case 'refreshgoogle': refreshCustomerFromGoogle(S.editCustId); break;
@@ -2297,6 +2403,7 @@ document.addEventListener('click',e=>{
     case 'savecust': saveCust(); break;
     case 'delcust': if(confirm('Delete this customer? Jobs and assets will remain but become unassigned.')){ DB.deleteCustomer(S.editCustId); closeModal(); } break;
     case 'addasset': S.assetModal=true; S.editAssetId=null; render(); break;
+    case 'clearassetfilter': S.assetFilterCustId=null; render(); break;
     case 'editasset': S.assetModal=true; S.editAssetId=el.dataset.aid; render(); break;
     case 'saveasset': saveAsset(); break;
     case 'delasset': if(confirm('Delete this asset?')){ DB.deleteAsset(S.editAssetId); closeModal(); } break;
@@ -2400,20 +2507,71 @@ document.addEventListener('click',e=>{
     case 'sendgmailemail': {
       const r=S.leadEmailSavedId ? DB.leads.find(l=>l.id===S.leadEmailSavedId) : S.leadResults[S.leadEmailIdx];
       if(r){
-        const to=leadEmailAddress(r);
+        const to=resolveLeadEmail(r);
         if(!to){ alert('No email address found for this lead or linked customer.'); break; }
         const tpl=activeLeadEmailTemplate();
-        sendViaGmail(to,personalizeLeadEmail(tpl?.subject||'',r),personalizeLeadEmail(tpl?.body||'',r)).then(ok=>{ if(ok){ S.leadEmailIdx=null; S.leadEmailSavedId=null; render(); setTimeout(initLeadsMap,40); alert('Email sent!'); } });
+        sendViaGmail(to,personalizeLeadEmail(tpl?.subject||'',r),personalizeLeadEmail(tpl?.body||'',r),r).then(ok=>{ if(ok){ S.leadEmailIdx=null; S.leadEmailSavedId=null; render(); setTimeout(initLeadsMap,40); alert('Email sent!'); } });
       }
       break;
     }
     case 'sendgmailstudio': {
       const lead=selectedLeadForEmailStudio();
       if(!lead){ alert('Select a lead first.'); break; }
-      const to=leadEmailAddress(lead);
+      const to=resolveLeadEmail(lead);
       if(!to){ alert('No email address found for this lead or linked customer.'); break; }
       const tpl=activeLeadEmailTemplate();
-      sendViaGmail(to,personalizeLeadEmail(tpl?.subject||'',lead),personalizeLeadEmail(tpl?.body||'',lead)).then(ok=>{ if(ok) alert('Email sent to '+lead.name+'!'); });
+      sendViaGmail(to,personalizeLeadEmail(tpl?.subject||'',lead),personalizeLeadEmail(tpl?.body||'',lead),lead).then(ok=>{ if(ok) alert('Email sent to '+lead.name+'!'); });
+      break;
+    }
+    case 'sendgmailtest': {
+      const lead=selectedLeadForEmailStudio() || sampleLeadForEmailPreview();
+      const tpl=activeLeadEmailTemplate();
+      const subj='[TEST] '+personalizeLeadEmail(tpl?.subject||'',lead);
+      const body=personalizeLeadEmail(tpl?.body||'',lead);
+      sendViaGmail('chris@coatesindustrial.com', subj, body, null).then(ok=>{ if(ok) alert('Test email sent to chris@coatesindustrial.com'); });
+      break;
+    }
+    case 'emailpreviewmode': S.leadEmailPreview=el.dataset.mode; render(); setTimeout(initLeadsMap,40); break;
+    case 'setleadfollowup': {
+      const current=DB.leads.find(l=>l.id===el.dataset.lid)?.followUpDate||'';
+      const val=prompt('Set follow-up date (YYYY-MM-DD), or clear:',current);
+      if(val===null) break;
+      DB.updateLead(el.dataset.lid,{followUpDate:val||null});
+      render();
+      break;
+    }
+    case 'toggleleadbulk': {
+      const lid=el.dataset.lid;
+      if(S.leadBulkSelected.has(lid)) S.leadBulkSelected.delete(lid); else S.leadBulkSelected.add(lid);
+      render(); break;
+    }
+    case 'toggleleadbulkall': {
+      const allIds=DB.leads.map(l=>l.id);
+      if(S.leadBulkSelected.size===allIds.length) S.leadBulkSelected=new Set();
+      else S.leadBulkSelected=new Set(allIds);
+      render(); break;
+    }
+    case 'clearbulkselect': S.leadBulkSelected=new Set(); render(); break;
+    case 'bulkemailleads': {
+      const ids=[...S.leadBulkSelected];
+      const leads=ids.map(id=>DB.leads.find(l=>l.id===id)).filter(Boolean);
+      const withEmail=leads.filter(l=>resolveLeadEmail(l));
+      const without=leads.filter(l=>!resolveLeadEmail(l));
+      let msg=`Send "${activeLeadEmailTemplate()?.name||'current template'}" to ${withEmail.length} lead${withEmail.length!==1?'s':''}?`;
+      if(without.length) msg+=`\n\n${without.length} lead${without.length!==1?'s have':' has'} no email and will be skipped.`;
+      if(!withEmail.length){ alert('None of the selected leads have email addresses.'); break; }
+      if(!confirm(msg)) break;
+      const tpl=activeLeadEmailTemplate();
+      let sent=0, failed=0;
+      (async()=>{
+        for(const lead of withEmail){
+          const ok=await sendViaGmail(resolveLeadEmail(lead),personalizeLeadEmail(tpl?.subject||'',lead),personalizeLeadEmail(tpl?.body||'',lead),lead);
+          if(ok) sent++; else failed++;
+        }
+        S.leadBulkSelected=new Set();
+        render();
+        alert(`Bulk send complete: ${sent} sent${failed?`, ${failed} failed`:''}.`);
+      })();
       break;
     }
     case 'openassetfromcustomer':
@@ -2441,11 +2599,14 @@ document.addEventListener('change',e=>{
   if(e.target.id==='schedMode'){ S.scheduleMode=e.target.value; render(); }
   if(e.target.id==='schedDate'){ S.scheduleDate=e.target.value; render(); }
   if(e.target.id==='leadSortSel'){ S.leadSort=e.target.value; render(); setTimeout(initLeadsMap,40); }
+  if(e.target.dataset.a==='updateleadstage'){ DB.updateLead(e.target.dataset.lid,{status:e.target.value}); render(); setTimeout(initLeadsMap,40); }
 });
 document.addEventListener('input',e=>{
   if(e.target.dataset.a==='searchcust'){ S.search=e.target.value; clearTimeout(window._st); window._st=setTimeout(render,100); }
   if(e.target.dataset.a==='searchasset'){ S.assetSearch=e.target.value; clearTimeout(window._st2); window._st2=setTimeout(render,100); }
   if(e.target.dataset.a==='contactsearch'){ S.contactSearch=e.target.value; clearTimeout(window._st3); window._st3=setTimeout(render,100); }
+  if(e.target.dataset.a==='updateleadnotes'){ clearTimeout(window._notesTimer); window._notesTimer=setTimeout(()=>DB.updateLead(e.target.dataset.lid,{notes:e.target.value}), 600); }
+  if(e.target.dataset.a==='updateleademail'){ clearTimeout(window._emailTimer); window._emailTimer=setTimeout(()=>DB.updateLead(e.target.dataset.lid,{email:e.target.value}), 600); }
 });
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){
