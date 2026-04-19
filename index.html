@@ -890,7 +890,7 @@ const S={
   driveReady:false,driveSignedIn:false,driveSyncing:false,driveError:null,
   contactsModal:false,googleContacts:[],googleContactsLoaded:false,googleContactsLoading:false,googleContactsError:null,
   contactSearch:'',contactPickerMode:'import',contactPickerTargetCustomerId:null,
-  leadsSector:'powder coating',leadsRegion:'north-east',leadSearching:false,leadSearchError:null,leadResults:[],leadSavedSearch:'',leadMapReady:false,leadMapLayout:loadLeadMapLayout(),leadSectionLayout:loadLeadSectionLayout(),leadEmailIdx:null,leadEmailSavedId:null,leadEmailTemplate:0,leadEmailTargetType:null,leadEmailTargetId:null,leadSort:'date',leadGroup:'none'
+  leadsSector:'powder coating',leadsRegion:'north-east',leadSearching:false,leadSearchError:null,leadResults:[],leadSavedSearch:'',leadMapReady:false,leadMapLayout:loadLeadMapLayout(),leadSectionLayout:loadLeadSectionLayout(),leadEmailIdx:null,leadEmailSavedId:null,leadEmailTemplate:0,leadEmailTargetType:null,leadEmailTargetId:null,leadSort:'date',leadGroup:'none',viewScroll:{}
 };
 
 const I={
@@ -1631,13 +1631,27 @@ function insertLeadEmailToken(token){
   const caret=start+token.length;
   if(typeof target.setSelectionRange==='function') target.setSelectionRange(caret,caret);
 }
+function saveContentScroll(){
+  const content=document.querySelector('.content');
+  if(!content) return;
+  S.viewScroll={...(S.viewScroll||{}),[S.view]:{top:content.scrollTop,left:content.scrollLeft}};
+}
+function restoreContentScroll(){
+  const content=document.querySelector('.content');
+  const pos=S.viewScroll?.[S.view];
+  if(!content || !pos) return;
+  content.scrollTop=pos.top||0;
+  content.scrollLeft=pos.left||0;
+}
 function render(){
+  saveContentScroll();
   document.getElementById('app').innerHTML=
     renderHeader()+
     renderSetupBanner()+
     `<div class="main"><div class="content">${renderMain()}</div>${renderSidebar()}</div>`+
     renderOverlay()+
     `<div class="print-sheet" id="printSheet"></div>`;
+  restoreContentScroll();
   bindDrag();
   if(S.view==='leads'){
     bindLeadSections();
