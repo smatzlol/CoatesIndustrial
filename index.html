@@ -391,7 +391,8 @@ const DB={
         ...j
       }));
       this.assets=(d.assets||[]).map(a=>({status:a.status||'active',...a}));
-      this.leads=(d.leads||[]).map(l=>({status:l.status||'new',source:l.source||'Places API (New)',...l}));
+      const validLeadStatuses=['new','customer'];
+      this.leads=(d.leads||[]).map(l=>({source:'Places API (New)',...l,status:validLeadStatuses.includes(l.status)?l.status:'new'}));
     }catch(e){}
   },
   save(){
@@ -410,7 +411,7 @@ const DB={
   updateAsset(id,u){ const i=this.assets.findIndex(a=>a.id===id); if(i>-1){this.assets[i]={...this.assets[i],...u}; this.save();} },
   deleteAsset(id){ this.assets=this.assets.filter(a=>a.id!==id); this.jobs=this.jobs.map(j=>({...j,assetIds:(j.assetIds||[]).filter(x=>x!==id)})); this.save(); },
   addJob(j){ const rec={id:uid(),createdAt:Date.now(),status:'scheduled',recurrence:'none',assetIds:[],...j}; this.jobs.push(rec); this.save(); return rec; },
-  addLead(l){ const rec={id:uid(),createdAt:Date.now(),status:'new',source:'Places API (New)',...l}; this.leads.unshift(rec); this.save(); return rec; },
+  addLead(l){ const rec={id:uid(),createdAt:Date.now(),source:'Places API (New)',...l,status:'new'}; this.leads.unshift(rec); this.save(); return rec; },
   updateLead(id,u){ const i=this.leads.findIndex(l=>l.id===id); if(i>-1){ this.leads[i]={...this.leads[i],...u}; this.save(); } },
   deleteLead(id){ this.leads=this.leads.filter(l=>l.id!==id); this.save(); },
   updateJob(id,u){
@@ -934,68 +935,69 @@ function renderSavedLeadRow(l){
 }
 function renderLeads(){
   const region=LEAD_REGIONS[S.leadsRegion] || LEAD_REGIONS['north-east'];
-  const saved=DB.leads.slice(0,8);
   const statusMsg=S.leadSearching?'Searching…':S.leadResults.length?`${S.leadResults.length} result${S.leadResults.length!==1?'s':''} — click a pin to view details`:'Run a search to find businesses on the map';
-  return `<div class="leads-layout">
-    <div class="leads-side">
-      <div class="leads-panel panel">
-        <div class="panel-h"><h3>Lead finder</h3><span class="muted">Search UK sectors and save prospects</span></div>
-        <div class="panel-b">
-          <div class="lead-grid">
-            <div class="fg"><label>Sector</label><select class="fc" id="leadSector">${LEAD_SECTORS.map(s=>`<option value="${esc(s)}" ${S.leadsSector===s?'selected':''}>${esc(s.replace(/\w/g,m=>m.toUpperCase()))}</option>`).join('')}</select></div>
-            <div class="fg"><label>Region</label><select class="fc" id="leadRegion">${Object.entries(LEAD_REGIONS).map(([k,v])=>`<option value="${k}" ${S.leadsRegion===k?'selected':''}>${esc(v.label)}</option>`).join('')}</select></div>
+  const savedTable=(()=>{
+    if(!DB.leads.length) return `<div class="empty-state" style="padding:32px 16px">No saved leads yet</div>`;
+    let list=[...DB.leads];
+    const sortKey={date:(a,b)=>b.createdAt-a.createdAt,name:(a,b)=>a.name.localeCompare(b.name),region:(a,b)=>(a.region||'').localeCompare(b.region||'')}[S.leadSort]||(()=>0);
+    list.sort(sortKey);
+    const groups={};
+    list.forEach(l=>{ const k=l.sector||'Other'; (groups[k]=groups[k]||[]).push(l); });
+    return Object.entries(groups).map(([sector,items])=>`
+      <div style="border-bottom:1px solid var(--bdr)">
+        <div style="display:flex;align-items:center;gap:8px;padding:9px 14px 7px;background:var(--c2)">
+          <span style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--t1)">${esc(sector)}</span>
+          <span style="font-size:11px;color:var(--t2)">${items.length} lead${items.length!==1?'s':''}</span>
+        </div>
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr style="background:var(--c1)">
+            <th style="padding:6px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--t2);border-bottom:1px solid var(--bdr)">Name</th>
+            <th style="padding:6px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--t2);border-bottom:1px solid var(--bdr)">Region</th>
+            <th style="padding:6px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--t2);border-bottom:1px solid var(--bdr)">Status</th>
+            <th style="padding:6px 12px;text-align:left;font-size:11px;font-weight:700;color:var(--t2);border-bottom:1px solid var(--bdr)">Actions</th>
+          </tr></thead>
+          <tbody>${items.map(renderSavedLeadRow).join('')}</tbody>
+        </table>
+      </div>`).join('');
+  })();
+  return `<div style="display:flex;flex-direction:column;gap:16px">
+    <div class="leads-layout">
+      <div class="leads-side">
+        <div class="leads-panel panel">
+          <div class="panel-h"><h3>Lead finder</h3><span class="muted">Search UK sectors and save prospects</span></div>
+          <div class="panel-b">
+            <div class="lead-grid">
+              <div class="fg"><label>Sector</label><select class="fc" id="leadSector">${LEAD_SECTORS.map(s=>`<option value="${esc(s)}" ${S.leadsSector===s?'selected':''}>${esc(s.replace(/\w/g,m=>m.toUpperCase()))}</option>`).join('')}</select></div>
+              <div class="fg"><label>Region</label><select class="fc" id="leadRegion">${Object.entries(LEAD_REGIONS).map(([k,v])=>`<option value="${k}" ${S.leadsRegion===k?'selected':''}>${esc(v.label)}</option>`).join('')}</select></div>
+            </div>
+            <div class="fg" style="margin-top:10px"><label>Quick sectors</label><div class="lead-chipbar">${LEAD_SECTORS.slice(0,6).map(s=>`<button class="lead-chip ${S.leadsSector===s?'on':''}" data-a="leadchip" data-sector="${esc(s)}">${esc(s)}</button>`).join('')}</div></div>
+            <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+              <button class="btn-primary" data-a="searchleads">${I.search} Search leads</button>
+              <button class="btn-ghost" data-a="fitleadregion">${I.map} Centre map</button>
+            </div>
+            <div class="map-note" style="margin-top:10px">Query: <strong>${esc(buildLeadTextQuery())}</strong></div>
+            ${S.leadSearchError?`<div class="empty-state" style="padding:16px 0 0;text-align:left">${esc(S.leadSearchError)}</div>`:''}
           </div>
-          <div class="fg" style="margin-top:10px"><label>Quick sectors</label><div class="lead-chipbar">${LEAD_SECTORS.slice(0,6).map(s=>`<button class="lead-chip ${S.leadsSector===s?'on':''}" data-a="leadchip" data-sector="${esc(s)}">${esc(s)}</button>`).join('')}</div></div>
-          <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
-            <button class="btn-primary" data-a="searchleads">${I.search} Search leads</button>
-            <button class="btn-ghost" data-a="fitleadregion">${I.map} Centre map</button>
-          </div>
-          <div class="map-note" style="margin-top:10px">Query: <strong>${esc(buildLeadTextQuery())}</strong></div>
-          ${S.leadSearchError?`<div class="empty-state" style="padding:16px 0 0;text-align:left">${esc(S.leadSearchError)}</div>`:''}
         </div>
       </div>
-      <div class="panel leads-panel">
-        <div class="panel-h"><h3>Saved leads</h3>
-          <div style="display:flex;align-items:center;gap:8px">
-            <span class="muted">${leadSavedCount()} saved</span>
-            <select class="fc" id="leadSortSel" style="padding:4px 8px;font-size:12px;width:auto">
-              <option value="date" ${S.leadSort==='date'?'selected':''}>Newest first</option>
-              <option value="name" ${S.leadSort==='name'?'selected':''}>Name A–Z</option>
-              <option value="region" ${S.leadSort==='region'?'selected':''}>Region</option>
-            </select>
-          </div>
-        </div>
-        <div style="padding-bottom:8px">
-          ${(()=>{
-            if(!DB.leads.length) return `<div class="empty-state" style="padding:32px 16px">No saved leads yet</div>`;
-            let list=[...DB.leads];
-            const sortKey={date:(a,b)=>b.createdAt-a.createdAt,name:(a,b)=>a.name.localeCompare(b.name),region:(a,b)=>(a.region||'').localeCompare(b.region||'')}[S.leadSort]||(()=>0);
-            list.sort(sortKey);
-            const groups={};
-            list.forEach(l=>{ const k=l.sector||'Other'; (groups[k]=groups[k]||[]).push(l); });
-            return Object.entries(groups).map(([sector,items])=>`
-              <div style="border-bottom:1px solid var(--bdr)">
-                <div style="display:flex;align-items:center;gap:8px;padding:10px 14px 8px;background:var(--c2)">
-                  <span style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--t1)">${esc(sector)}</span>
-                  <span style="font-size:11px;color:var(--t2)">${items.length} lead${items.length!==1?'s':''}</span>
-                </div>
-                <table style="width:100%;border-collapse:collapse">
-                  <thead><tr style="background:var(--c1)">
-                    <th style="padding:6px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--t2);border-bottom:1px solid var(--bdr)">Name</th>
-                    <th style="padding:6px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--t2);border-bottom:1px solid var(--bdr)">Region</th>
-                    <th style="padding:6px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--t2);border-bottom:1px solid var(--bdr)">Status</th>
-                    <th style="padding:6px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--t2);border-bottom:1px solid var(--bdr)">Actions</th>
-                  </tr></thead>
-                  <tbody>${items.map(renderSavedLeadRow).join('')}</tbody>
-                </table>
-              </div>`).join('');
-          })()}
-        </div>
+      <div class="leads-map-panel">
+        <div class="leads-map-head"><div><strong>${esc(region.label)}</strong><div class="muted">${esc(statusMsg)}</div></div></div>
+        <div id="leadsMap" class="leads-map"></div>
       </div>
     </div>
-    <div class="leads-map-panel">
-      <div class="leads-map-head"><div><strong>${esc(region.label)}</strong><div class="muted">${esc(statusMsg)}</div></div></div>
-      <div id="leadsMap" class="leads-map"></div>
+    <div class="panel">
+      <div class="panel-h">
+        <h3>Saved leads</h3>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="muted">${leadSavedCount()} saved</span>
+          <select class="fc" id="leadSortSel" style="padding:4px 8px;font-size:12px;width:auto">
+            <option value="date" ${S.leadSort==='date'?'selected':''}>Newest first</option>
+            <option value="name" ${S.leadSort==='name'?'selected':''}>Name A–Z</option>
+            <option value="region" ${S.leadSort==='region'?'selected':''}>Region</option>
+          </select>
+        </div>
+      </div>
+      <div>${savedTable}</div>
     </div>
   </div>`;
 }
