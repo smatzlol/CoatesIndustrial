@@ -789,13 +789,13 @@ function jobsForAsset(assetId){ return DB.jobs.filter(j=>(j.assetIds||[]).includ
 
 
 const LEAD_SECTORS=['powder coating','food manufacturing','steel fabrication','foundry','heat treatment','process plant','warehousing heating','automotive manufacturing','engineering services','packaging'];
-const LEAD_REGIONS={
-  'north-east':{label:'North East', center:[54.9783,-1.6178], radius:90000, search:'North East England'},
-  'yorkshire':{label:'Yorkshire', center:[53.8008,-1.5491], radius:110000, search:'Yorkshire England'},
-  'north-west':{label:'North West', center:[53.4808,-2.2426], radius:120000, search:'North West England'},
-  'midlands':{label:'Midlands', center:[52.4862,-1.8904], radius:125000, search:'Midlands England'},
-  'south-east':{label:'South East', center:[51.5072,-0.1276], radius:130000, search:'South East England'},
-  'scotland':{label:'Scotland', center:[55.9533,-3.1883], radius:170000, search:'Scotland'}
+const LEAD_REGIONS = {
+  'north-east': { label:'North East', center:[54.9783,-1.6178], radius:50000, search:'North East England' },
+  'yorkshire':  { label:'Yorkshire',  center:[53.8008,-1.5491], radius:50000, search:'Yorkshire England' },
+  'north-west': { label:'North West', center:[53.4808,-2.2426], radius:50000, search:'North West England' },
+  'midlands':   { label:'Midlands',   center:[52.4862,-1.8904], radius:50000, search:'Midlands England' },
+  'south-east': { label:'South East', center:[51.5072,-0.1276], radius:50000, search:'South East England' },
+  'scotland':   { label:'Scotland',   center:[55.9533,-3.1883], radius:50000, search:'Scotland' }
 };
 let leadMap=null, leadMarkers=[];
 function leadSavedCount(){ return DB.leads.length; }
