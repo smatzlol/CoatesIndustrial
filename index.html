@@ -1019,7 +1019,7 @@ function leadEmailMailtoFor(lead){
   const tpl=activeLeadEmailTemplate();
   const subject=personalizeLeadEmail(tpl?.subject||'',lead);
   const body=personalizeLeadEmail(tpl?.body||'',lead);
-  const email=lead?.email || '';
+  const email=leadEmailAddress(lead);
   const qs=`subject=${encodeURIComponent(subject)}&amp;body=${encodeURIComponent(body)}`;
   return `mailto:${email}?${qs}`;
 }
@@ -1982,7 +1982,6 @@ function renderAssets(){
     </div>`;
 }
 function renderOverlay(){
-  if(S.leadEmailIdx!==null || S.leadEmailSavedId!==null) return renderLeadEmailModal();
   if(S.contactsModal) return renderContactsModal();
   if(S.jobModal) return renderJobModal();
   if(S.custModal) return renderCustomerModal();
@@ -2368,16 +2367,10 @@ document.addEventListener('click',e=>{
       break;
     case 'deletelead': if(confirm('Delete this saved lead?')){ DB.deleteLead(el.dataset.lid); render(); } break;
     case 'openleademail':
-      S.leadEmailIdx=Number(el.dataset.index);
-      S.leadEmailSavedId=null;
-      render();
-      setTimeout(initLeadsMap,40);
+      selectLeadForEmailStudio('result', Number(el.dataset.index));
       break;
     case 'opensavedemail':
-      S.leadEmailSavedId=el.dataset.lid;
-      S.leadEmailIdx=null;
-      render();
-      setTimeout(initLeadsMap,40);
+      selectLeadForEmailStudio('saved', el.dataset.lid);
       break;
     case 'closeleademail': S.leadEmailIdx=null; S.leadEmailSavedId=null; render(); setTimeout(initLeadsMap,40); break;
     case 'sendgmailemail': {
