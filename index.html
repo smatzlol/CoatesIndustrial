@@ -248,6 +248,7 @@ textarea.fc{min-height:72px;resize:vertical}
 /* Leads tab */
 .leads-board{display:grid;grid-template-columns:320px minmax(0,1fr);gap:18px;align-items:start}
 .lead-section{min-width:0}
+.lead-section[data-lead-section="templates"]{grid-column:1/-1}
 .lead-section[data-lead-section="saved"]{grid-column:1/-1}
 .lead-map-standalone{grid-column:2;min-width:0}
 .lead-section.dragging{opacity:.58}
@@ -290,7 +291,7 @@ textarea.fc{min-height:72px;resize:vertical}
 
 @media(max-width:1100px){
   .leads-board{grid-template-columns:1fr}
-  .lead-section[data-lead-section="saved"]{grid-column:auto}
+  .lead-section[data-lead-section="templates"],.lead-section[data-lead-section="saved"]{grid-column:auto}
   .lead-map-standalone{grid-column:auto}
   .leads-layout{grid-template-columns:1fr}
   .leads-map-wrap{min-height:0}
